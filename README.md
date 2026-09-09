@@ -109,3 +109,28 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 
 `from` y `to` son fechas `YYYY-MM-DD` inclusivas; un formato invalido devuelve 400.
 `customer` busca coincidencia parcial en nombre o email. Todos los filtros se combinan.
+
+## Desplegar en Render
+
+El `render.yaml` define los dos servicios. Al importar el repo como Blueprint,
+Render los crea y pide los valores marcados como `sync: false`.
+
+| | sailtrim-api | sailtrim-mcp |
+|---|---|---|
+| Start | `uvicorn app:app --host 0.0.0.0 --port $PORT` | `python mcp_server.py` |
+| Variables | `API_KEY`, `BEARER_TOKEN` | `API_BASE`, `API_KEY`, `MCP_TRANSPORT`, `MCP_HOST` |
+
+Pasos:
+
+1. Desplegar `sailtrim-api` y cargarle un `API_KEY` y un `BEARER_TOKEN` propios
+   (no los de la demo: estan en este repo publico).
+2. Copiar la URL que queda (`https://sailtrim-api.onrender.com`) y ponerla como
+   `API_BASE` en `sailtrim-mcp`, con el mismo `API_KEY`.
+
+Ambos scripts leen `$PORT`, asi que funcionan igual en local y en Render.
+
+### SQLite en Render
+
+El disco es efimero: `demo.db` se regenera desde el seed en cada deploy y cada
+reinicio. Para un demo alcanza. Para conservar datos hace falta un disco pago,
+montado y apuntado con `DB_PATH` (ver el comentario en `render.yaml`).

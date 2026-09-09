@@ -5,6 +5,7 @@ FastAPI + SQLite. Exactly 16 endpoints.
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
 """
+import os
 from datetime import datetime
 from typing import Optional
 
@@ -479,4 +480,8 @@ def _order_with_items(conn, order_id):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    # Render and similar platforms inject $PORT; fall back to 8000 locally.
+    port = int(os.getenv("PORT", "8000"))
+    # Auto-reload is a local convenience: skip it wherever $PORT is provided.
+    reload = os.getenv("PORT") is None
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=reload)

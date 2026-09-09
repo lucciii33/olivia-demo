@@ -1,0 +1,44 @@
+# Render blueprint: two services, the API and the MCP server.
+#
+# After the first deploy, set API_BASE on the MCP service to the API's public
+# URL (https://<api-service>.onrender.com) and give both services the same
+# API_KEY.
+services:
+  - type: web
+    name: sailtrim-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      # sync:false means Render asks for the value in the dashboard instead of
+      # keeping it in this file. Never commit real credentials here.
+      - key: API_KEY
+        sync: false
+      - key: BEARER_TOKEN
+        sync: false
+      # SQLite lives on an ephemeral disk: it is recreated from the seed on
+      # every deploy and restart. To keep data, attach a paid disk and point
+      # DB_PATH at its mount, e.g.:
+      # - key: DB_PATH
+      #   value: /var/data/demo.db
+
+  - type: web
+    name: sailtrim-mcp
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python mcp_server.py
+    envVars:
+      - key: MCP_TRANSPORT
+        value: streamable-http
+      # 0.0.0.0 so the service is reachable; 127.0.0.1 would only serve itself.
+      - key: MCP_HOST
+        value: 0.0.0.0
+      # Public URL of the API service above.
+      - key: API_BASE
+        sync: false
+      # Must match the API service's API_KEY.
+      - key: API_KEY
+        sync: false

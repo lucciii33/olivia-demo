@@ -6,7 +6,8 @@ API key (or Bearer token). This proves the auth layer end to end and keeps a
 single source of truth (the API).
 
 Run the API first (python app.py), then run this server:
-    python mcp_server.py
+    python mcp_server.py                          # stdio (local clients)
+    MCP_TRANSPORT=streamable-http python mcp_server.py   # HTTP on :9000
 """
 import os
 
@@ -21,6 +22,13 @@ except ModuleNotFoundError:
 API_BASE = os.getenv("API_BASE", "http://localhost:8000")
 API_KEY = os.getenv("API_KEY", "demo-api-key-123")
 BEARER_TOKEN = os.getenv("BEARER_TOKEN", "")
+
+# Transport: "stdio" (default, for Claude Desktop and other local clients) or
+# "streamable-http" / "sse" when the client connects over the network.
+MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "stdio")
+MCP_HOST = os.getenv("MCP_HOST", "127.0.0.1")
+# $PORT is what Render assigns; MCP_PORT overrides it for local runs.
+MCP_PORT = int(os.getenv("MCP_PORT") or os.getenv("PORT", "9000"))
 
 mcp = _MCP("sailtrim-demo")
 
@@ -113,4 +121,8 @@ def business_dashboard() -> dict:
 
 
 if __name__ == "__main__":
-    mcp.run()
+    if MCP_TRANSPORT == "stdio":
+        mcp.run()
+    else:
+        # Network transports need a host and port; stdio takes neither.
+        mcp.run(transport=MCP_TRANSPORT, host=MCP_HOST, port=MCP_PORT)
