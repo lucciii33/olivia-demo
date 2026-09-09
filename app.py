@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 15 endpoints.
+FastAPI + SQLite. Exactly 16 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -78,6 +78,15 @@ def _product_dict(row):
     d = dict(row)
     d["low_stock"] = d["quantity"] <= d["minimum_stock"]
     return d
+
+
+def _valid_date(value):
+    """True if value is a plain YYYY-MM-DD date."""
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
 
 
 def _generate_order_number(conn):
@@ -294,6 +303,58 @@ def list_orders(status: Optional[str] = None, limit: int = 50, offset: int = 0):
         args += [limit, offset]
         rows = conn.execute(sql, args).fetchall()
         return {"count": len(rows), "items": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+# 16. Search orders (date range, customer, minimum total)
+# Declared before /orders/{order_id} so the literal path wins over the dynamic
+# one — same reason /products/low-stock sits above /products/{product_id}.
+@app.get("/orders/search", tags=["orders"], dependencies=[Depends(require_auth)])
+def search_orders(
+    date_from: Optional[str] = Query(None, alias="from", description="Inclusive start date, YYYY-MM-DD"),
+    date_to: Optional[str] = Query(None, alias="to", description="Inclusive end date, YYYY-MM-DD"),
+    customer: Optional[str] = Query(None, description="Partial match on customer name or email"),
+    min_total: Optional[float] = Query(None, description="Only orders with total >= this value"),
+    status: Optional[str] = Query(None, description="pending | accepted | cancelled"),
+    limit: int = 50,
+    offset: int = 0,
+):
+    for label, value in (("from", date_from), ("to", date_to)):
+        if value and not _valid_date(value):
+            raise HTTPException(status_code=400,
+                                detail=f"'{label}' must be a date in YYYY-MM-DD format")
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="'from' must not be later than 'to'")
+
+    conn = get_conn()
+    try:
+        sql = "SELECT * FROM orders WHERE 1=1"
+        args: list = []
+        if date_from:
+            sql += " AND date(created_at) >= date(?)"
+            args.append(date_from)
+        if date_to:
+            sql += " AND date(created_at) <= date(?)"
+            args.append(date_to)
+        if customer:
+            sql += " AND (customer_name LIKE ? OR customer_email LIKE ?)"
+            args += [f"%{customer}%", f"%{customer}%"]
+        if min_total is not None:
+            sql += " AND total >= ?"
+            args.append(min_total)
+        if status:
+            sql += " AND status = ?"
+            args.append(status)
+        sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        args += [limit, offset]
+        rows = conn.execute(sql, args).fetchall()
+        return {
+            "count": len(rows),
+            "filters": {"from": date_from, "to": date_to, "customer": customer,
+                        "min_total": min_total, "status": status},
+            "items": [dict(r) for r in rows],
+        }
     finally:
         conn.close()
 
