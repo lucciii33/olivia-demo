@@ -8,7 +8,7 @@ original fue modificado.
 
 ## Qué incluye
 
-- **`app.py`** — API REST con **17 endpoints** (FastAPI).
+- **`app.py`** — API REST con **18 endpoints** (FastAPI).
 - **`mcp_server.py`** — servidor **MCP con 7 tools** que consumen la API.
 - **`db.py`** — SQLite: esquema + datos de demo (se autogenera al arrancar).
 - **`auth.py`** — protección con **API key O Bearer token** (basta con uno).
@@ -47,7 +47,7 @@ curl localhost:8000/products -H "X-API-Key: demo-api-key-123"
 curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-abc"
 ```
 
-## Los 17 endpoints
+## Los 18 endpoints
 
 | #  | Método | Ruta                                  | Qué hace |
 |----|--------|---------------------------------------|----------|
@@ -68,6 +68,7 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 15 | GET    | `/stats/top-products`                 | Productos más vendidos |
 | 16 | GET    | `/orders/search`                      | Buscar órdenes por fecha, cliente o monto |
 | 17 | GET    | `/products/{id}/orders`               | Historial de ventas de un producto |
+| 18 | GET    | `/stats/sales-by-month`               | Ventas por mes (filtro opcional por año) |
 
 ## Las 7 MCP tools
 

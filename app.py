@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 17 endpoints.
+FastAPI + SQLite. Exactly 18 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -493,6 +493,42 @@ def stats_top_products(limit: int = 5):
             (limit,),
         ).fetchall()
         return {"count": len(rows), "items": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+# 18. Sales by month
+@app.get("/stats/sales-by-month", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_sales_by_month(
+    year: Optional[int] = Query(None, ge=2000, le=2100, description="Only this calendar year"),
+):
+    conn = get_conn()
+    try:
+        sql = """SELECT strftime('%Y-%m', o.created_at) AS month,
+                        COUNT(DISTINCT o.id) AS orders,
+                        SUM(oi.quantity) AS units_sold,
+                        SUM(oi.subtotal) AS revenue
+                 FROM orders o
+                 JOIN order_items oi ON oi.order_id = o.id
+                 WHERE o.status != 'cancelled'"""
+        args: list = []
+        if year is not None:
+            sql += " AND strftime('%Y', o.created_at) = ?"
+            args.append(str(year))
+        sql += " GROUP BY month ORDER BY month ASC"
+        months = [
+            {**dict(r), "revenue": round(r["revenue"], 2)}
+            for r in conn.execute(sql, args).fetchall()
+        ]
+        return {
+            "year": year,
+            "months": months,
+            "totals": {
+                "orders": sum(m["orders"] for m in months),
+                "units_sold": sum(m["units_sold"] for m in months),
+                "revenue": round(sum(m["revenue"] for m in months), 2),
+            },
+        }
     finally:
         conn.close()
 
