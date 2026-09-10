@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 18 endpoints.
+FastAPI + SQLite. Exactly 19 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -55,6 +55,16 @@ class ProductUpdate(BaseModel):
 
 class StockAdjust(BaseModel):
     delta: int = Field(..., description="Positive to add stock, negative to remove")
+    reason: Optional[str] = None
+
+
+class BulkAdjustItem(BaseModel):
+    sku: str
+    delta: int = Field(..., description="Positive to add stock, negative to remove")
+
+
+class BulkAdjustIn(BaseModel):
+    items: list[BulkAdjustItem] = Field(..., min_length=1, max_length=100)
     reason: Optional[str] = None
 
 
@@ -165,6 +175,55 @@ def low_stock_products():
             "SELECT * FROM products WHERE quantity <= minimum_stock ORDER BY quantity ASC"
         ).fetchall()
         return {"count": len(rows), "items": [_product_dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+# 19. Bulk stock adjustment (all or nothing)
+# Declared before the /products/{product_id} routes, like /products/low-stock.
+@app.post("/products/bulk-adjust", tags=["products"], dependencies=[Depends(require_auth)])
+def bulk_adjust_stock(body: BulkAdjustIn):
+    skus = [item.sku for item in body.items]
+    duplicates = sorted({s for s in skus if skus.count(s) > 1})
+    if duplicates:
+        raise HTTPException(status_code=400,
+                            detail=f"Each SKU may appear once; repeated: {', '.join(duplicates)}")
+    conn = get_conn()
+    try:
+        # Validate every line before writing anything, so a bad line leaves
+        # the whole inventory untouched.
+        plan = []
+        for item in body.items:
+            row = conn.execute("SELECT * FROM products WHERE sku = ?", (item.sku,)).fetchone()
+            if not row:
+                raise HTTPException(status_code=400, detail=f"Unknown SKU '{item.sku}'")
+            new_qty = row["quantity"] + item.delta
+            if new_qty < 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient stock for {item.sku}: have {row['quantity']}, delta {item.delta}",
+                )
+            plan.append((row, item.delta, new_qty))
+
+        ts = now_iso()
+        for row, _, new_qty in plan:
+            conn.execute("UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?",
+                         (new_qty, ts, row["id"]))
+        conn.commit()
+
+        adjusted = []
+        for row, delta, _ in plan:
+            updated = _product_dict(
+                conn.execute("SELECT * FROM products WHERE id = ?", (row["id"],)).fetchone())
+            adjusted.append({
+                "product_id": updated["id"],
+                "sku": updated["sku"],
+                "previous_quantity": row["quantity"],
+                "delta": delta,
+                "quantity": updated["quantity"],
+                "low_stock": updated["low_stock"],
+            })
+        return {"count": len(adjusted), "reason": body.reason, "adjusted": adjusted}
     finally:
         conn.close()
 
