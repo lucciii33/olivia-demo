@@ -8,7 +8,7 @@ original fue modificado.
 
 ## Qué incluye
 
-- **`app.py`** — API REST con **16 endpoints** (FastAPI).
+- **`app.py`** — API REST con **17 endpoints** (FastAPI).
 - **`mcp_server.py`** — servidor **MCP con 7 tools** que consumen la API.
 - **`db.py`** — SQLite: esquema + datos de demo (se autogenera al arrancar).
 - **`auth.py`** — protección con **API key O Bearer token** (basta con uno).
@@ -47,7 +47,7 @@ curl localhost:8000/products -H "X-API-Key: demo-api-key-123"
 curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-abc"
 ```
 
-## Los 16 endpoints
+## Los 17 endpoints
 
 | #  | Método | Ruta                                  | Qué hace |
 |----|--------|---------------------------------------|----------|
@@ -67,6 +67,7 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 14 | GET    | `/stats/overview`                     | Métricas: inventario, ventas, stock bajo |
 | 15 | GET    | `/stats/top-products`                 | Productos más vendidos |
 | 16 | GET    | `/orders/search`                      | Buscar órdenes por fecha, cliente o monto |
+| 17 | GET    | `/products/{id}/orders`               | Historial de ventas de un producto |
 
 ## Las 7 MCP tools
 
@@ -134,3 +135,13 @@ Ambos scripts leen `$PORT`, asi que funcionan igual en local y en Render.
 El disco es efimero: `demo.db` se regenera desde el seed en cada deploy y cada
 reinicio. Para un demo alcanza. Para conservar datos hace falta un disco pago,
 montado y apuntado con `DB_PATH` (ver el comentario en `render.yaml`).
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Cada test corre contra una base SQLite nueva en un directorio temporal, asi que
+nunca tocan `demo.db`.
