@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 16 endpoints.
+FastAPI + SQLite. Exactly 17 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -235,6 +235,38 @@ def adjust_stock(product_id: int, body: StockAdjust):
         conn.commit()
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
         return {"product": _product_dict(row), "applied_delta": body.delta, "reason": body.reason}
+    finally:
+        conn.close()
+
+
+# 17. Product order history
+@app.get("/products/{product_id}/orders", tags=["products"],
+         dependencies=[Depends(require_auth)])
+def product_orders(
+    product_id: int,
+    include_cancelled: bool = Query(False, description="Also list cancelled orders"),
+):
+    conn = get_conn()
+    try:
+        product = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        sql = """SELECT o.id AS order_id, o.order_number, o.customer_name, o.status,
+                        o.created_at, oi.quantity, oi.unit_price, oi.subtotal
+                 FROM order_items oi
+                 JOIN orders o ON o.id = oi.order_id
+                 WHERE oi.product_id = ?"""
+        if not include_cancelled:
+            sql += " AND o.status != 'cancelled'"
+        sql += " ORDER BY o.created_at DESC"
+        rows = [dict(r) for r in conn.execute(sql, (product_id,)).fetchall()]
+        return {
+            "product": _product_dict(product),
+            "orders_count": len(rows),
+            "units_sold": sum(r["quantity"] for r in rows),
+            "revenue": round(sum(r["subtotal"] for r in rows), 2),
+            "items": rows,
+        }
     finally:
         conn.close()
 

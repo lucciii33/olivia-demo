@@ -4,3 +4,4 @@ __pycache__/
 demo.db
 .env
 *.log
+.pytest_cache/
