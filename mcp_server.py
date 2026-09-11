@@ -1,5 +1,5 @@
 """
-Sailtrim Demo MCP server — 9 tools.
+Sailtrim Demo MCP server — 10 tools.
 
 The MCP tools call the protected REST API over HTTP, authenticating with the
 API key (or Bearer token). This proves the auth layer end to end and keeps a
@@ -143,6 +143,14 @@ def search_orders(date_from: str = "", date_to: str = "", customer: str = "",
         "limit": limit,
     }
     return _get("/orders/search", {k: v for k, v in params.items() if v is not None})
+
+
+# 10
+@mcp.tool()
+def product_sales_history(product_id: int, include_cancelled: bool = False) -> dict:
+    """Every order that included a product, with units sold and revenue.
+    Cancelled orders are left out unless include_cancelled is true."""
+    return _get(f"/products/{product_id}/orders", {"include_cancelled": include_cancelled})
 
 
 if __name__ == "__main__":
