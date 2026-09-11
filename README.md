@@ -9,7 +9,7 @@ original fue modificado.
 ## Qué incluye
 
 - **`app.py`** — API REST con **19 endpoints** (FastAPI).
-- **`mcp_server.py`** — servidor **MCP con 8 tools** que consumen la API.
+- **`mcp_server.py`** — servidor **MCP con 10 tools** que consumen la API.
 - **`db.py`** — SQLite: esquema + datos de demo (se autogenera al arrancar).
 - **`auth.py`** — protección con **API key O Bearer token** (basta con uno).
 
@@ -71,7 +71,7 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 18 | GET    | `/stats/sales-by-month`               | Ventas por mes (filtro opcional por año) |
 | 19 | POST   | `/products/bulk-adjust`               | Ajustar stock de varios productos (todo o nada) |
 
-## Las 8 MCP tools
+## Las 10 MCP tools
 
 1. `list_products` — listar/buscar productos
 2. `get_product` — detalle de un producto
@@ -81,6 +81,8 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 6. `set_order_status` — cambiar estado de una orden
 7. `business_dashboard` — resumen de negocio + top ventas
 8. `sales_by_month` — ventas por mes (filtro opcional por año)
+9. `search_orders` — buscar órdenes por fecha, cliente, monto o estado
+10. `product_sales_history` — historial de ventas de un producto
 
 ### Conectar el MCP a Claude Desktop / VS Code
 

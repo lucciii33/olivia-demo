@@ -1,5 +1,5 @@
 """
-Sailtrim Demo MCP server — 8 tools.
+Sailtrim Demo MCP server — 10 tools.
 
 The MCP tools call the protected REST API over HTTP, authenticating with the
 API key (or Bearer token). This proves the auth layer end to end and keeps a
@@ -126,6 +126,31 @@ def sales_by_month(year: int | None = None) -> dict:
     """Monthly sales (orders, units sold, revenue) excluding cancelled orders.
     Pass `year` to limit the report to one calendar year."""
     return _get("/stats/sales-by-month", {"year": year} if year is not None else None)
+
+
+# 9
+@mcp.tool()
+def search_orders(date_from: str = "", date_to: str = "", customer: str = "",
+                  min_total: float | None = None, status: str = "", limit: int = 20) -> dict:
+    """Search orders by date range (YYYY-MM-DD, inclusive), customer name/email,
+    minimum total and status (pending | accepted | cancelled). All filters combine."""
+    params = {
+        "from": date_from or None,
+        "to": date_to or None,
+        "customer": customer or None,
+        "min_total": min_total,
+        "status": status or None,
+        "limit": limit,
+    }
+    return _get("/orders/search", {k: v for k, v in params.items() if v is not None})
+
+
+# 10
+@mcp.tool()
+def product_sales_history(product_id: int, include_cancelled: bool = False) -> dict:
+    """Every order that included a product, with units sold and revenue.
+    Cancelled orders are left out unless include_cancelled is true."""
+    return _get(f"/products/{product_id}/orders", {"include_cancelled": include_cancelled})
 
 
 if __name__ == "__main__":
