@@ -8,7 +8,7 @@ original fue modificado.
 
 ## Qué incluye
 
-- **`app.py`** — API REST con **19 endpoints** (FastAPI).
+- **`app.py`** — API REST con **18 endpoints** (FastAPI).
 - **`mcp_server.py`** — servidor **MCP con 10 tools** que consumen la API.
 - **`db.py`** — SQLite: esquema + datos de demo (se autogenera al arrancar).
 - **`auth.py`** — protección con **API key O Bearer token** (basta con uno).
@@ -47,7 +47,7 @@ curl localhost:8000/products -H "X-API-Key: demo-api-key-123"
 curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-abc"
 ```
 
-## Los 19 endpoints
+## Los 18 endpoints
 
 | #  | Método | Ruta                                  | Qué hace |
 |----|--------|---------------------------------------|----------|
@@ -61,9 +61,8 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 8  | POST   | `/products/{id}/adjust-stock`         | Ajustar stock (+/-) |
 | 9  | POST   | `/orders`                             | Crear orden (descuenta stock) |
 | 10 | GET    | `/orders`                             | Listar órdenes |
-| 11 | GET    | `/orders/{id}`                        | Ver orden con ítems |
+| 11 | GET    | `/orders/{id}`                        | Ver orden con ítems (`?include_items=false` los omite) |
 | 12 | PATCH  | `/orders/{id}/status`                 | Cambiar estado (cancelar repone stock) |
-| 13 | GET    | `/customers`                          | Clientes (derivados de órdenes) |
 | 14 | GET    | `/stats/overview`                     | Métricas: inventario, ventas, stock bajo |
 | 15 | GET    | `/stats/top-products`                 | Productos más vendidos |
 | 16 | GET    | `/orders/search`                      | Buscar órdenes por fecha, cliente o monto |
