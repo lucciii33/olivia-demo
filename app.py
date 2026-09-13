@@ -386,15 +386,18 @@ def create_order(body: OrderIn):
 def list_orders(status: Optional[str] = None, limit: int = 50, offset: int = 0):
     conn = get_conn()
     try:
-        sql = "SELECT * FROM orders WHERE 1=1"
+        where = " WHERE 1=1"
         args: list = []
         if status:
-            sql += " AND status = ?"
+            where += " AND status = ?"
             args.append(status)
-        sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-        args += [limit, offset]
-        rows = conn.execute(sql, args).fetchall()
-        return {"count": len(rows), "items": [dict(r) for r in rows]}
+        # count is the size of this page; total_count ignores limit and offset.
+        total_count = conn.execute("SELECT COUNT(*) AS c FROM orders" + where, args).fetchone()["c"]
+        rows = conn.execute(
+            "SELECT * FROM orders" + where + " ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            [*args, limit, offset],
+        ).fetchall()
+        return {"count": len(rows), "total_count": total_count, "items": [dict(r) for r in rows]}
     finally:
         conn.close()
 
