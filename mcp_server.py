@@ -1,5 +1,5 @@
 """
-Sailtrim Demo MCP server — 10 tools.
+Sailtrim Demo MCP server — 9 tools.
 
 The MCP tools call the protected REST API over HTTP, authenticating with the
 API key (or Bearer token). This proves the auth layer end to end and keeps a
@@ -63,9 +63,22 @@ def _patch(path, json):
 
 # 1
 @mcp.tool()
-def list_products(query: str = "", low_stock_only: bool = False, limit: int = 20) -> dict:
-    """List inventory products, optionally filtered by a search term or low-stock flag."""
-    return _get("/products", {"q": query or None, "low_stock": low_stock_only, "limit": limit})
+def list_products(query: str = "", low_stock_only: bool = False, limit: int = 20,
+                  offset: int = 0) -> dict:
+    """List inventory products, optionally filtered by a search term or low-stock flag.
+
+    Page through results with limit and offset; has_more says whether another page
+    exists. Descriptions are left out to keep listings short: use get_product for them.
+    """
+    # Ask for one extra row: if it comes back, there is another page.
+    data = _get("/products", {"q": query or None, "low_stock": low_stock_only,
+                              "limit": limit + 1, "offset": offset})
+    page = data["items"][:limit]
+    return {
+        "count": len(page),
+        "has_more": len(data["items"]) > limit,
+        "items": [{k: v for k, v in p.items() if k != "description"} for p in page],
+    }
 
 
 # 2
@@ -73,13 +86,6 @@ def list_products(query: str = "", low_stock_only: bool = False, limit: int = 20
 def get_product(product_id: int) -> dict:
     """Get full details of a single product by its numeric id."""
     return _get(f"/products/{product_id}")
-
-
-# 3
-@mcp.tool()
-def check_low_stock() -> dict:
-    """Return every product at or below its minimum stock threshold (reorder alerts)."""
-    return _get("/products/low-stock")
 
 
 # 4

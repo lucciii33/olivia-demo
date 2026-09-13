@@ -70,11 +70,10 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 18 | GET    | `/stats/sales-by-month`               | Ventas por mes (filtro opcional por año) |
 | 19 | POST   | `/products/bulk-adjust`               | Ajustar stock de varios productos (todo o nada) |
 
-## Las 10 MCP tools
+## Las 9 MCP tools
 
-1. `list_products` — listar/buscar productos
+1. `list_products` — listar/buscar productos (paginado con `offset`)
 2. `get_product` — detalle de un producto
-3. `check_low_stock` — alertas de reposición
 4. `adjust_stock` — ajustar inventario
 5. `create_order` — crear orden y descontar stock
 6. `set_order_status` — cambiar estado de una orden
