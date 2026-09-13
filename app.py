@@ -267,11 +267,12 @@ def update_product(product_id: int, body: ProductUpdate):
 def delete_product(product_id: int):
     conn = get_conn()
     try:
-        cur = conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
-        conn.commit()
-        if cur.rowcount == 0:
+        row = conn.execute("SELECT sku FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="Product not found")
-        return {"deleted": True, "id": product_id}
+        conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
+        conn.commit()
+        return {"deleted": True, "id": product_id, "sku": row["sku"]}
     finally:
         conn.close()
 
