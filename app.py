@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 19 endpoints.
+FastAPI + SQLite. Exactly 18 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -453,10 +453,20 @@ def search_orders(
 
 # 11. Get order (with items)
 @app.get("/orders/{order_id}", tags=["orders"], dependencies=[Depends(require_auth)])
-def get_order(order_id: int):
+def get_order(
+    order_id: int,
+    include_items: bool = Query(True, description="Set to false to omit the line items"),
+):
     conn = get_conn()
     try:
-        return _order_with_items(conn, order_id)
+        # Shape this response here, not in _order_with_items: that helper also
+        # builds the POST /orders and PATCH /orders/{id}/status responses.
+        order = _order_with_items(conn, order_id)
+        order["items_count"] = len(order["items"])
+        order.pop("inventory_deducted")
+        if not include_items:
+            order.pop("items")
+        return order
     finally:
         conn.close()
 
@@ -483,23 +493,6 @@ def update_order_status(order_id: int, body: StatusIn):
                      (body.status, ts, order_id))
         conn.commit()
         return _order_with_items(conn, order_id)
-    finally:
-        conn.close()
-
-
-# 13. Customers (derived from orders)
-@app.get("/customers", tags=["customers"], dependencies=[Depends(require_auth)])
-def list_customers():
-    conn = get_conn()
-    try:
-        rows = conn.execute(
-            """SELECT customer_name, customer_email,
-                      COUNT(*) AS orders_count, SUM(total) AS total_spent
-               FROM orders
-               GROUP BY customer_name, customer_email
-               ORDER BY total_spent DESC"""
-        ).fetchall()
-        return {"count": len(rows), "items": [dict(r) for r in rows]}
     finally:
         conn.close()
 
