@@ -119,10 +119,13 @@ def set_order_status(order_id: int, status: str) -> dict:
 
 # 7
 @mcp.tool()
-def business_dashboard() -> dict:
-    """Get a business snapshot: inventory value, revenue, low-stock count and top sellers."""
+def business_dashboard(top_limit: int = 5) -> dict:
+    """Get a business snapshot: inventory value, revenue, low-stock count and top sellers.
+
+    top_limit sets how many top-selling products to include (default 5).
+    """
     overview = _get("/stats/overview")
-    top = _get("/stats/top-products", {"limit": 5})
+    top = _get("/stats/top-products", {"limit": top_limit})
     return {"overview": overview, "top_products": top["items"]}
 
 
