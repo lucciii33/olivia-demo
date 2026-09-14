@@ -48,3 +48,39 @@ def test_existing_fields_are_unchanged(client, api_key_headers):
     body = _orders(client, api_key_headers)
     assert set(body) == {"count", "total_count", "items"}
     assert {"id", "order_number", "customer_name", "status", "total"} <= body["items"][0].keys()
+
+
+def _new_order(client, headers, customer):
+    return client.post("/orders", headers=headers, json={
+        "customer_name": customer,
+        "items": [{"sku": "HW-WIN-10", "quantity": 1}],
+    }).json()
+
+
+def test_customer_filter_is_partial_and_case_insensitive(client, api_key_headers):
+    body = _orders(client, api_key_headers, "?customer=marina")
+    assert [o["customer_name"] for o in body["items"]] == ["Blue Marina SL"]
+    assert body["count"] == 1
+    assert body["total_count"] == 1
+
+
+def test_customer_without_matches(client, api_key_headers):
+    body = _orders(client, api_key_headers, "?customer=nadie")
+    assert body["items"] == []
+    assert body["total_count"] == 0
+
+
+def test_total_count_respects_customer_filter(client, api_key_headers):
+    _new_order(client, api_key_headers, "Astillero Norte")
+    _new_order(client, api_key_headers, "Astillero Norte")
+    body = _orders(client, api_key_headers, "?customer=astillero&limit=1")
+    assert body["count"] == 1
+    assert body["total_count"] == 2
+
+
+def test_customer_combines_with_status(client, api_key_headers):
+    order = _new_order(client, api_key_headers, "Astillero Norte")
+    client.patch(f"/orders/{order['id']}/status", headers=api_key_headers,
+                 json={"status": "cancelled"})
+    assert _orders(client, api_key_headers, "?customer=astillero&status=cancelled")["total_count"] == 1
+    assert _orders(client, api_key_headers, "?customer=astillero&status=accepted")["total_count"] == 0

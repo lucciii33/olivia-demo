@@ -120,13 +120,22 @@ def set_order_status(order_id: int, status: str) -> dict:
 # 7
 @mcp.tool()
 def business_dashboard(top_limit: int = 5) -> dict:
-    """Get a business snapshot: inventory value, revenue, low-stock count and top sellers.
+    """Get a business snapshot: inventory value, revenue, low-stock products and top sellers.
 
     top_limit sets how many top-selling products to include (default 5).
+    low_stock_items lists which products are at or below their minimum stock.
     """
     overview = _get("/stats/overview")
     top = _get("/stats/top-products", {"limit": top_limit})
-    return {"overview": overview, "top_products": top["items"]}
+    low = _get("/products/low-stock")
+    return {
+        "overview": overview,
+        "top_products": top["items"],
+        "low_stock_items": [
+            {"sku": p["sku"], "name": p["name"], "quantity": p["quantity"]}
+            for p in low["items"]
+        ],
+    }
 
 
 # 8

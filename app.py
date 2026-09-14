@@ -384,7 +384,12 @@ def create_order(body: OrderIn):
 
 # 10. List orders
 @app.get("/orders", tags=["orders"], dependencies=[Depends(require_auth)])
-def list_orders(status: Optional[str] = None, limit: int = 50, offset: int = 0):
+def list_orders(
+    status: Optional[str] = None,
+    customer: Optional[str] = Query(None, description="Partial match on customer name"),
+    limit: int = 50,
+    offset: int = 0,
+):
     conn = get_conn()
     try:
         where = " WHERE 1=1"
@@ -392,6 +397,9 @@ def list_orders(status: Optional[str] = None, limit: int = 50, offset: int = 0):
         if status:
             where += " AND status = ?"
             args.append(status)
+        if customer:
+            where += " AND customer_name LIKE ?"
+            args.append(f"%{customer}%")
         # count is the size of this page; total_count ignores limit and offset.
         total_count = conn.execute("SELECT COUNT(*) AS c FROM orders" + where, args).fetchone()["c"]
         rows = conn.execute(
