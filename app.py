@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 20 endpoints.
+FastAPI + SQLite. Exactly 21 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -476,6 +476,23 @@ def search_orders(
         }
     finally:
         conn.close()
+
+
+# 22. Get order by order number
+# Declared before the /orders/{order_id} routes, like /orders/search.
+@app.get("/orders/by-number/{order_number}", tags=["orders"],
+         dependencies=[Depends(require_auth)])
+def get_order_by_number(order_number: str):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT id FROM orders WHERE order_number = ?",
+                           (order_number,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No order with number '{order_number}'")
+    # Same response as GET /orders/{order_id}.
+    return get_order(row["id"], include_items=True)
 
 
 # 11. Get order (with items)
