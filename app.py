@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 19 endpoints.
+FastAPI + SQLite. Exactly 20 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -608,6 +608,29 @@ def stats_sales_by_month(
                 "revenue": round(sum(m["revenue"] for m in months), 2),
             },
         }
+    finally:
+        conn.close()
+
+
+# 21. Orders by status
+@app.get("/stats/orders-by-status", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_orders_by_status():
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) AS orders, SUM(total) AS total FROM orders GROUP BY status"
+        ).fetchall()
+        found = {r["status"]: r for r in rows}
+        # Always report every status, in lifecycle order, even when it has no orders.
+        statuses = [
+            {
+                "status": status,
+                "orders": found[status]["orders"] if status in found else 0,
+                "total": round(found[status]["total"], 2) if status in found else 0.0,
+            }
+            for status in ("pending", "accepted", "cancelled")
+        ]
+        return {"total_orders": sum(s["orders"] for s in statuses), "statuses": statuses}
     finally:
         conn.close()
 
