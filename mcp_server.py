@@ -138,20 +138,14 @@ def business_dashboard(top_limit: int = 5) -> dict:
     }
 
 
-# 8
-@mcp.tool()
-def sales_by_month(year: int | None = None) -> dict:
-    """Monthly sales (orders, units sold, revenue) excluding cancelled orders.
-    Pass `year` to limit the report to one calendar year."""
-    return _get("/stats/sales-by-month", {"year": year} if year is not None else None)
-
-
 # 9
 @mcp.tool()
 def search_orders(date_from: str = "", date_to: str = "", customer: str = "",
-                  min_total: float | None = None, status: str = "", limit: int = 20) -> dict:
+                  min_total: float | None = None, status: str = "", limit: int = 20,
+                  offset: int = 0) -> dict:
     """Search orders by date range (YYYY-MM-DD, inclusive), customer name/email,
-    minimum total and status (pending | accepted | cancelled). All filters combine."""
+    minimum total and status (pending | accepted | cancelled). All filters combine.
+    Use offset with limit to page through the results."""
     params = {
         "from": date_from or None,
         "to": date_to or None,
@@ -159,6 +153,7 @@ def search_orders(date_from: str = "", date_to: str = "", customer: str = "",
         "min_total": min_total,
         "status": status or None,
         "limit": limit,
+        "offset": offset or None,
     }
     return _get("/orders/search", {k: v for k, v in params.items() if v is not None})
 
@@ -185,6 +180,13 @@ def orders_by_status() -> dict:
     """Order count and total amount for each status (pending, accepted, cancelled).
     Every status is listed, with zeros when it has no orders."""
     return _get("/stats/orders-by-status")
+
+
+# 13
+@mcp.tool()
+def order_by_number(order_number: str) -> dict:
+    """Get one order by its order number (e.g. ORD-2026-0001), with its line items."""
+    return _get(f"/orders/by-number/{quote(order_number, safe='')}")
 
 
 if __name__ == "__main__":

@@ -80,11 +80,11 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 5. `create_order` — crear orden y descontar stock (acepta teléfono del cliente)
 6. `set_order_status` — cambiar estado de una orden (devuelve también el estado anterior)
 7. `business_dashboard` — resumen de negocio + top ventas
-8. `sales_by_month` — ventas por mes (filtro opcional por año)
-9. `search_orders` — buscar órdenes por fecha, cliente, monto o estado
+9. `search_orders` — buscar órdenes por fecha, cliente, monto o estado (paginado con `offset`)
 10. `product_sales_history` — historial de ventas de un producto
 11. `get_product_by_sku` — detalle de un producto por SKU
 12. `orders_by_status` — órdenes y monto por estado
+13. `order_by_number` — ver una orden por su número
 
 ### Conectar el MCP a Claude Desktop / VS Code
 
