@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 18 endpoints.
+FastAPI + SQLite. Exactly 19 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -224,6 +224,21 @@ def bulk_adjust_stock(body: BulkAdjustIn):
                 "low_stock": updated["low_stock"],
             })
         return {"count": len(adjusted), "reason": body.reason, "adjusted": adjusted}
+    finally:
+        conn.close()
+
+
+# 20. Get product by SKU
+# Declared before the /products/{product_id} routes: /products/by-sku/orders
+# would otherwise match /products/{product_id}/orders.
+@app.get("/products/by-sku/{sku}", tags=["products"], dependencies=[Depends(require_auth)])
+def get_product_by_sku(sku: str):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM products WHERE sku = ?", (sku,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"No product with SKU '{sku}'")
+        return _product_dict(row)
     finally:
         conn.close()
 
