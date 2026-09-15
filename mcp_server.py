@@ -1,5 +1,5 @@
 """
-Sailtrim Demo MCP server — 9 tools.
+Sailtrim Demo MCP server — 10 tools.
 
 The MCP tools call the protected REST API over HTTP, authenticating with the
 API key (or Bearer token). This proves the auth layer end to end and keeps a
@@ -10,6 +10,7 @@ Run the API first (python app.py), then run this server:
     MCP_TRANSPORT=streamable-http python mcp_server.py   # HTTP on :9000
 """
 import os
+from urllib.parse import quote
 
 import httpx
 
@@ -113,8 +114,13 @@ def create_order(customer_name: str, items: list[dict], customer_email: str = ""
 # 6
 @mcp.tool()
 def set_order_status(order_id: int, status: str) -> dict:
-    """Update an order's status (pending | accepted | cancelled). Cancelling restocks items."""
-    return _patch(f"/orders/{order_id}/status", {"status": status})
+    """Update an order's status (pending | accepted | cancelled). Cancelling restocks items.
+
+    The result includes previous_status, the status the order had before this call.
+    """
+    previous = _get(f"/orders/{order_id}", {"include_items": False})["status"]
+    order = _patch(f"/orders/{order_id}/status", {"status": status})
+    return {**order, "previous_status": previous}
 
 
 # 7
@@ -169,6 +175,14 @@ def product_sales_history(product_id: int, include_cancelled: bool = False) -> d
     """Every order that included a product, with units sold and revenue.
     Cancelled orders are left out unless include_cancelled is true."""
     return _get(f"/products/{product_id}/orders", {"include_cancelled": include_cancelled})
+
+
+# 11
+@mcp.tool()
+def get_product_by_sku(sku: str) -> dict:
+    """Get full details of a single product by its exact SKU (e.g. SAIL-MAIN-052)."""
+    # Encode the SKU so characters like '#' or spaces stay part of the path.
+    return _get(f"/products/by-sku/{quote(sku, safe='')}")
 
 
 if __name__ == "__main__":

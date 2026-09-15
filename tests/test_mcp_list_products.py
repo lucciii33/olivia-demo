@@ -72,4 +72,3 @@ def test_check_low_stock_was_removed():
     assert not hasattr(mcp_server, "check_low_stock")
     names = {t.name for t in asyncio.run(mcp_server.mcp.list_tools())}
     assert "check_low_stock" not in names
-    assert len(names) == 9

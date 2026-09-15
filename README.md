@@ -8,7 +8,7 @@ original fue modificado.
 
 ## Qué incluye
 
-- **`app.py`** — API REST con **20 endpoints** (FastAPI).
+- **`app.py`** — API REST con **21 endpoints** (FastAPI).
 - **`mcp_server.py`** — servidor **MCP con 10 tools** que consumen la API.
 - **`db.py`** — SQLite: esquema + datos de demo (se autogenera al arrancar).
 - **`auth.py`** — protección con **API key O Bearer token** (basta con uno).
@@ -47,7 +47,7 @@ curl localhost:8000/products -H "X-API-Key: demo-api-key-123"
 curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-abc"
 ```
 
-## Los 20 endpoints
+## Los 21 endpoints
 
 | #  | Método | Ruta                                  | Qué hace |
 |----|--------|---------------------------------------|----------|
@@ -71,18 +71,20 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 19 | POST   | `/products/bulk-adjust`               | Ajustar stock de varios productos (todo o nada) |
 | 20 | GET    | `/products/by-sku/{sku}`              | Ver un producto por SKU |
 | 21 | GET    | `/stats/orders-by-status`             | Órdenes y monto por estado |
+| 22 | GET    | `/orders/by-number/{order_number}`    | Ver orden por número (ej. `ORD-2026-0001`) |
 
-## Las 9 MCP tools
+## Las 10 MCP tools
 
 1. `list_products` — listar/buscar productos (paginado con `offset`)
 2. `get_product` — detalle de un producto
 4. `adjust_stock` — ajustar inventario
 5. `create_order` — crear orden y descontar stock
-6. `set_order_status` — cambiar estado de una orden
+6. `set_order_status` — cambiar estado de una orden (devuelve también el estado anterior)
 7. `business_dashboard` — resumen de negocio + top ventas
 8. `sales_by_month` — ventas por mes (filtro opcional por año)
 9. `search_orders` — buscar órdenes por fecha, cliente, monto o estado
 10. `product_sales_history` — historial de ventas de un producto
+11. `get_product_by_sku` — detalle de un producto por SKU
 
 ### Conectar el MCP a Claude Desktop / VS Code
 
