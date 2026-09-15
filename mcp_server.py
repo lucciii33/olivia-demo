@@ -89,22 +89,16 @@ def get_product(product_id: int) -> dict:
     return _get(f"/products/{product_id}")
 
 
-# 4
-@mcp.tool()
-def adjust_stock(product_id: int, delta: int, reason: str = "") -> dict:
-    """Adjust a product's stock. Use a positive delta to add units, negative to remove."""
-    return _post(f"/products/{product_id}/adjust-stock", {"delta": delta, "reason": reason})
-
-
 # 5
 @mcp.tool()
 def create_order(customer_name: str, items: list[dict], customer_email: str = "",
-                 notes: str = "") -> dict:
+                 notes: str = "", customer_phone: str = "") -> dict:
     """Create an order and deduct stock.
     `items` is a list like [{"sku": "SAIL-MAIN-052", "quantity": 2}]."""
     payload = {
         "customer_name": customer_name,
         "customer_email": customer_email or None,
+        "customer_phone": customer_phone or None,
         "items": items,
         "notes": notes or None,
     }
@@ -183,6 +177,14 @@ def get_product_by_sku(sku: str) -> dict:
     """Get full details of a single product by its exact SKU (e.g. SAIL-MAIN-052)."""
     # Encode the SKU so characters like '#' or spaces stay part of the path.
     return _get(f"/products/by-sku/{quote(sku, safe='')}")
+
+
+# 12
+@mcp.tool()
+def orders_by_status() -> dict:
+    """Order count and total amount for each status (pending, accepted, cancelled).
+    Every status is listed, with zeros when it has no orders."""
+    return _get("/stats/orders-by-status")
 
 
 if __name__ == "__main__":
