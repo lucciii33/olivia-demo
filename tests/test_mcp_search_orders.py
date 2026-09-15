@@ -36,3 +36,21 @@ def test_date_range_uses_api_param_names(api):
     body = mcp_server.search_orders(date_from="2001-01-01", date_to="2001-12-31")
     assert api[0][1] == {"from": "2001-01-01", "to": "2001-12-31", "limit": 20}
     assert body["items"] == []
+
+
+def test_offset_is_only_sent_when_set(api):
+    mcp_server.search_orders(offset=2)
+    assert api[0][1] == {"limit": 20, "offset": 2}
+    mcp_server.search_orders(offset=0)
+    assert api[1][1] == {"limit": 20}
+
+
+def test_offset_pages_through_orders(api):
+    first = mcp_server.search_orders(limit=1)
+    second = mcp_server.search_orders(limit=1, offset=1)
+    assert first["count"] == second["count"] == 1
+    assert first["items"][0]["id"] != second["items"][0]["id"]
+
+
+def test_offset_past_the_end_is_empty(api):
+    assert mcp_server.search_orders(offset=99)["items"] == []
