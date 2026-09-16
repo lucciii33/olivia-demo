@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 21 endpoints.
+FastAPI + SQLite. Exactly 22 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -616,6 +616,8 @@ def stats_sales_by_month(
             {**dict(r), "revenue": round(r["revenue"], 2)}
             for r in conn.execute(sql, args).fetchall()
         ]
+        # Highest revenue wins; on a tie, max() keeps the earliest month.
+        best = max(months, key=lambda m: m["revenue"]) if months else None
         return {
             "year": year,
             "months": months,
@@ -624,6 +626,7 @@ def stats_sales_by_month(
                 "units_sold": sum(m["units_sold"] for m in months),
                 "revenue": round(sum(m["revenue"] for m in months), 2),
             },
+            "best_month": best["month"] if best else None,
         }
     finally:
         conn.close()
@@ -648,6 +651,29 @@ def stats_orders_by_status():
             for status in ("pending", "accepted", "cancelled")
         ]
         return {"total_orders": sum(s["orders"] for s in statuses), "statuses": statuses}
+    finally:
+        conn.close()
+
+
+# 23. Inventory value
+@app.get("/stats/inventory-value", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_inventory_value():
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            """SELECT COUNT(*) AS products,
+                      COALESCE(SUM(quantity * cost_price), 0) AS cost_value,
+                      COALESCE(SUM(quantity * sale_price), 0) AS retail_value
+               FROM products"""
+        ).fetchone()
+        cost, retail = round(row["cost_value"], 2), round(row["retail_value"], 2)
+        return {
+            "products": row["products"],
+            "cost_value": cost,
+            "retail_value": retail,
+            "potential_margin": round(retail - cost, 2),
+            "currency": "USD",
+        }
     finally:
         conn.close()
 

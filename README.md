@@ -8,8 +8,8 @@ original fue modificado.
 
 ## Qué incluye
 
-- **`app.py`** — API REST con **21 endpoints** (FastAPI).
-- **`mcp_server.py`** — servidor **MCP con 10 tools** que consumen la API.
+- **`app.py`** — API REST con **22 endpoints** (FastAPI).
+- **`mcp_server.py`** — servidor **MCP con 11 tools** que consumen la API.
 - **`db.py`** — SQLite: esquema + datos de demo (se autogenera al arrancar).
 - **`auth.py`** — protección con **API key O Bearer token** (basta con uno).
 
@@ -47,7 +47,7 @@ curl localhost:8000/products -H "X-API-Key: demo-api-key-123"
 curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-abc"
 ```
 
-## Los 21 endpoints
+## Los 22 endpoints
 
 | #  | Método | Ruta                                  | Qué hace |
 |----|--------|---------------------------------------|----------|
@@ -67,13 +67,14 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 15 | GET    | `/stats/top-products`                 | Productos más vendidos |
 | 16 | GET    | `/orders/search`                      | Buscar órdenes por fecha, cliente o monto |
 | 17 | GET    | `/products/{id}/orders`               | Historial de ventas de un producto |
-| 18 | GET    | `/stats/sales-by-month`               | Ventas por mes (filtro opcional por año) |
+| 18 | GET    | `/stats/sales-by-month`               | Ventas por mes (filtro opcional por año) y mejor mes |
 | 19 | POST   | `/products/bulk-adjust`               | Ajustar stock de varios productos (todo o nada) |
 | 20 | GET    | `/products/by-sku/{sku}`              | Ver un producto por SKU |
 | 21 | GET    | `/stats/orders-by-status`             | Órdenes y monto por estado |
 | 22 | GET    | `/orders/by-number/{order_number}`    | Ver orden por número (ej. `ORD-2026-0001`) |
+| 23 | GET    | `/stats/inventory-value`              | Valor del inventario a costo, a venta y margen |
 
-## Las 10 MCP tools
+## Las 11 MCP tools
 
 1. `list_products` — listar/buscar productos (paginado con `offset`)
 2. `get_product` — detalle de un producto
@@ -83,8 +84,9 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 9. `search_orders` — buscar órdenes por fecha, cliente, monto o estado (paginado con `offset`)
 10. `product_sales_history` — historial de ventas de un producto
 11. `get_product_by_sku` — detalle de un producto por SKU
-12. `orders_by_status` — órdenes y monto por estado
+12. `orders_by_status` — órdenes y monto por estado (incluye % de canceladas)
 13. `order_by_number` — ver una orden por su número
+14. `api_health` — chequear que la API esté arriba
 
 ### Conectar el MCP a Claude Desktop / VS Code
 
