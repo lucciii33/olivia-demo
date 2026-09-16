@@ -1,5 +1,5 @@
 """
-Sailtrim Demo MCP server — 10 tools.
+Sailtrim Demo MCP server — 11 tools.
 
 The MCP tools call the protected REST API over HTTP, authenticating with the
 API key (or Bearer token). This proves the auth layer end to end and keeps a
@@ -178,8 +178,12 @@ def get_product_by_sku(sku: str) -> dict:
 @mcp.tool()
 def orders_by_status() -> dict:
     """Order count and total amount for each status (pending, accepted, cancelled).
-    Every status is listed, with zeros when it has no orders."""
-    return _get("/stats/orders-by-status")
+    Every status is listed, with zeros when it has no orders.
+    cancelled_percent is the share of all orders that were cancelled, from 0 to 100."""
+    data = _get("/stats/orders-by-status")
+    cancelled = next(s["orders"] for s in data["statuses"] if s["status"] == "cancelled")
+    total = data["total_orders"]
+    return {**data, "cancelled_percent": round(100 * cancelled / total, 1) if total else 0.0}
 
 
 # 13
@@ -187,6 +191,13 @@ def orders_by_status() -> dict:
 def order_by_number(order_number: str) -> dict:
     """Get one order by its order number (e.g. ORD-2026-0001), with its line items."""
     return _get(f"/orders/by-number/{quote(order_number, safe='')}")
+
+
+# 14
+@mcp.tool()
+def api_health() -> dict:
+    """Check that the inventory API is up and reachable. Takes no arguments."""
+    return _get("/health")
 
 
 if __name__ == "__main__":

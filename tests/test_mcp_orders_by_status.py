@@ -47,3 +47,18 @@ def test_adjust_stock_endpoint_still_exists(client, api_key_headers):
     # Only the MCP tool is gone; the API route stays.
     res = client.post("/products/7/adjust-stock", headers=api_key_headers, json={"delta": 1})
     assert res.status_code == 200
+
+
+def test_cancelled_percent_is_zero_with_seed(api):
+    assert mcp_server.orders_by_status()["cancelled_percent"] == 0.0
+
+
+def test_cancelled_percent_after_cancelling(api, client, api_key_headers):
+    order = client.post("/orders", headers=api_key_headers, json={
+        "customer_name": "Astillero Norte",
+        "items": [{"sku": "HW-WIN-10", "quantity": 1}],
+    }).json()
+    client.patch(f"/orders/{order['id']}/status", headers=api_key_headers,
+                 json={"status": "cancelled"})
+    assert mcp_server.orders_by_status()["cancelled_percent"] == 33.3  # 1 of 3
+

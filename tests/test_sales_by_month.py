@@ -96,3 +96,22 @@ def test_year_out_of_range_is_422(client, api_key_headers):
     for bad in ("1999", "2101", "abc"):
         res = client.get(f"/stats/sales-by-month?year={bad}", headers=api_key_headers)
         assert res.status_code == 422, bad
+
+
+def test_best_month_with_seed_is_current_month(client, api_key_headers):
+    body = client.get("/stats/sales-by-month", headers=api_key_headers).json()
+    assert body["best_month"] == _this_month()
+
+
+def test_best_month_is_the_highest_revenue(client, api_key_headers):
+    big = _order(client, api_key_headers, quantity=18)  # 882.0, still below the seed month
+    _backdate(big["id"], "2024-03-10T10:00:00+00:00")
+    body = client.get("/stats/sales-by-month?year=2024", headers=api_key_headers).json()
+    assert body["best_month"] == "2024-03"
+    assert client.get("/stats/sales-by-month", headers=api_key_headers).json()["best_month"] == _this_month()
+
+
+def test_best_month_is_null_without_sales(client, api_key_headers):
+    body = client.get("/stats/sales-by-month?year=2001", headers=api_key_headers).json()
+    assert body["best_month"] is None
+
