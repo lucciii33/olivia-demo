@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 22 endpoints.
+FastAPI + SQLite. Exactly 23 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -228,6 +228,41 @@ def bulk_adjust_stock(body: BulkAdjustIn):
         conn.close()
 
 
+# 24. Reorder suggestions
+# Declared before the /products/{product_id} routes, like /products/low-stock.
+@app.get("/products/reorder-suggestions", tags=["products"],
+         dependencies=[Depends(require_auth)])
+def reorder_suggestions():
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM products WHERE quantity <= minimum_stock ORDER BY quantity ASC"
+        ).fetchall()
+        items = []
+        for r in rows:
+            # Restock up to twice the minimum so the product clears the threshold with margin.
+            suggested = 2 * r["minimum_stock"] - r["quantity"]
+            if suggested <= 0:  # only when minimum and quantity are both 0
+                continue
+            items.append({
+                "id": r["id"],
+                "sku": r["sku"],
+                "name": r["name"],
+                "quantity": r["quantity"],
+                "minimum_stock": r["minimum_stock"],
+                "suggested_order": suggested,
+                "estimated_cost": round(suggested * r["cost_price"], 2),
+            })
+        return {
+            "count": len(items),
+            "estimated_cost": round(sum(i["estimated_cost"] for i in items), 2),
+            "currency": "USD",
+            "items": items,
+        }
+    finally:
+        conn.close()
+
+
 # 20. Get product by SKU
 # Declared before the /products/{product_id} routes: /products/by-sku/orders
 # would otherwise match /products/{product_id}/orders.
@@ -265,6 +300,8 @@ def update_product(product_id: int, body: ProductUpdate):
         if not row:
             raise HTTPException(status_code=404, detail="Product not found")
         fields = {k: v for k, v in body.model_dump().items() if v is not None}
+        # The fields this request set, captured before updated_at joins them.
+        updated_fields = list(fields)
         if fields:
             fields["updated_at"] = now_iso()
             sets = ", ".join(f"{k} = ?" for k in fields)
@@ -272,7 +309,7 @@ def update_product(product_id: int, body: ProductUpdate):
                          [*fields.values(), product_id])
             conn.commit()
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-        return _product_dict(row)
+        return {**_product_dict(row), "updated_fields": updated_fields}
     finally:
         conn.close()
 

@@ -8,8 +8,8 @@ original fue modificado.
 
 ## Qué incluye
 
-- **`app.py`** — API REST con **22 endpoints** (FastAPI).
-- **`mcp_server.py`** — servidor **MCP con 11 tools** que consumen la API.
+- **`app.py`** — API REST con **23 endpoints** (FastAPI).
+- **`mcp_server.py`** — servidor **MCP con 12 tools** que consumen la API.
 - **`db.py`** — SQLite: esquema + datos de demo (se autogenera al arrancar).
 - **`auth.py`** — protección con **API key O Bearer token** (basta con uno).
 
@@ -47,7 +47,7 @@ curl localhost:8000/products -H "X-API-Key: demo-api-key-123"
 curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-abc"
 ```
 
-## Los 22 endpoints
+## Los 23 endpoints
 
 | #  | Método | Ruta                                  | Qué hace |
 |----|--------|---------------------------------------|----------|
@@ -56,7 +56,7 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 3  | GET    | `/products`                           | Listar / buscar productos |
 | 4  | GET    | `/products/low-stock`                 | Productos con stock bajo |
 | 5  | GET    | `/products/{id}`                      | Ver un producto |
-| 6  | PUT    | `/products/{id}`                      | Actualizar producto |
+| 6  | PUT    | `/products/{id}`                      | Actualizar producto (devuelve `updated_fields`) |
 | 7  | DELETE | `/products/{id}`                      | Eliminar producto |
 | 8  | POST   | `/products/{id}/adjust-stock`         | Ajustar stock (+/-) |
 | 9  | POST   | `/orders`                             | Crear orden (descuenta stock) |
@@ -73,8 +73,9 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 21 | GET    | `/stats/orders-by-status`             | Órdenes y monto por estado |
 | 22 | GET    | `/orders/by-number/{order_number}`    | Ver orden por número (ej. `ORD-2026-0001`) |
 | 23 | GET    | `/stats/inventory-value`              | Valor del inventario a costo, a venta y margen |
+| 24 | GET    | `/products/reorder-suggestions`       | Qué productos reponer, cuánto y a qué costo |
 
-## Las 11 MCP tools
+## Las 12 MCP tools
 
 1. `list_products` — listar/buscar productos (paginado con `offset`)
 2. `get_product` — detalle de un producto
@@ -87,6 +88,7 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 12. `orders_by_status` — órdenes y monto por estado (incluye % de canceladas)
 13. `order_by_number` — ver una orden por su número
 14. `api_health` — chequear que la API esté arriba
+15. `inventory_value` — valor del inventario a costo, a venta y margen
 
 ### Conectar el MCP a Claude Desktop / VS Code
 
