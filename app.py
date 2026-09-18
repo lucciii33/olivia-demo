@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 24 endpoints.
+FastAPI + SQLite. Exactly 25 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -739,7 +739,33 @@ def stats_product_margins():
         })
     # Highest margin first; products without a price go last.
     items.sort(key=lambda i: (i["margin_percent"] is None, -(i["margin_percent"] or 0)))
-    return {"count": len(items), "currency": "USD", "items": items}
+    priced = [i["margin_percent"] for i in items if i["margin_percent"] is not None]
+    return {
+        "count": len(items),
+        "currency": "USD",
+        # Simple mean over products that have a sale price.
+        "average_margin_percent": round(sum(priced) / len(priced), 1) if priced else None,
+        "items": items,
+    }
+
+
+# 26. Stock by unit of measure
+@app.get("/stats/stock-by-unit", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_stock_by_unit():
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """SELECT unit,
+                      COUNT(*) AS products,
+                      SUM(quantity) AS quantity,
+                      SUM(CASE WHEN quantity <= minimum_stock THEN 1 ELSE 0 END) AS low_stock_products
+               FROM products
+               GROUP BY unit
+               ORDER BY unit ASC"""
+        ).fetchall()
+        return {"count": len(rows), "units": [dict(r) for r in rows]}
+    finally:
+        conn.close()
 
 
 # --------------------------------------------------------------------------- #

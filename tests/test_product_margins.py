@@ -43,3 +43,17 @@ def test_products_without_price_go_last(client, api_key_headers):
     assert last["id"] == created["id"]
     assert last["margin"] == 0
     assert last["margin_percent"] is None
+
+
+def test_average_margin_percent(client, api_key_headers):
+    body = _margins(client, api_key_headers).json()
+    percents = [i["margin_percent"] for i in body["items"]]
+    assert body["average_margin_percent"] == round(sum(percents) / len(percents), 1)
+    assert body["average_margin_percent"] == 55.8
+
+
+def test_average_ignores_products_without_price(client, api_key_headers):
+    before = _margins(client, api_key_headers).json()["average_margin_percent"]
+    client.post("/products", headers=api_key_headers, json={"name": "Sin precio", "sku": "FREE-2"})
+    assert _margins(client, api_key_headers).json()["average_margin_percent"] == before
+
