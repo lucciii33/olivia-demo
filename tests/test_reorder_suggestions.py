@@ -41,7 +41,8 @@ def test_following_the_suggestion_clears_the_list(client, api_key_headers):
         "items": [{"sku": i["sku"], "delta": i["suggested_order"]} for i in items],
     })
     body = _suggestions(client, api_key_headers).json()
-    assert body == {"count": 0, "estimated_cost": 0, "currency": "USD", "items": []}
+    assert body == {"count": 0, "total_units": 0, "estimated_cost": 0, "currency": "USD",
+                    "items": []}
 
 
 def test_skips_products_with_zero_minimum_and_stock(client, api_key_headers):
@@ -55,3 +56,10 @@ def test_skips_products_with_zero_minimum_and_stock(client, api_key_headers):
 
 def test_get_product_by_id_still_works(client, api_key_headers):
     assert client.get("/products/1", headers=api_key_headers).status_code == 200
+
+
+def test_total_units_adds_up_the_suggestions(client, api_key_headers):
+    body = _suggestions(client, api_key_headers).json()
+    assert body["total_units"] == 157  # 17 + 140
+    assert body["total_units"] == sum(i["suggested_order"] for i in body["items"])
+

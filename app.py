@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 23 endpoints.
+FastAPI + SQLite. Exactly 24 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -255,6 +255,7 @@ def reorder_suggestions():
             })
         return {
             "count": len(items),
+            "total_units": sum(i["suggested_order"] for i in items),
             "estimated_cost": round(sum(i["estimated_cost"] for i in items), 2),
             "currency": "USD",
             "items": items,
@@ -713,6 +714,32 @@ def stats_inventory_value():
         }
     finally:
         conn.close()
+
+
+# 25. Product margins
+@app.get("/stats/product-margins", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_product_margins():
+    conn = get_conn()
+    try:
+        rows = conn.execute("SELECT id, sku, name, cost_price, sale_price FROM products").fetchall()
+    finally:
+        conn.close()
+    items = []
+    for r in rows:
+        margin = round(r["sale_price"] - r["cost_price"], 2)
+        items.append({
+            "id": r["id"],
+            "sku": r["sku"],
+            "name": r["name"],
+            "cost_price": r["cost_price"],
+            "sale_price": r["sale_price"],
+            "margin": margin,
+            # Share of the sale price that is profit; undefined when the price is 0.
+            "margin_percent": round(100 * margin / r["sale_price"], 1) if r["sale_price"] else None,
+        })
+    # Highest margin first; products without a price go last.
+    items.sort(key=lambda i: (i["margin_percent"] is None, -(i["margin_percent"] or 0)))
+    return {"count": len(items), "currency": "USD", "items": items}
 
 
 # --------------------------------------------------------------------------- #
