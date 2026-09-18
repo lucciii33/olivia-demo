@@ -1,5 +1,5 @@
 """
-Sailtrim Demo MCP server — 13 tools.
+Sailtrim Demo MCP server — 14 tools.
 
 The MCP tools call the protected REST API over HTTP, authenticating with the
 API key (or Bearer token). This proves the auth layer end to end and keeps a
@@ -10,6 +10,7 @@ Run the API first (python app.py), then run this server:
     MCP_TRANSPORT=streamable-http python mcp_server.py   # HTTP on :9000
 """
 import os
+import time
 from urllib.parse import quote
 
 import httpx
@@ -196,8 +197,11 @@ def order_by_number(order_number: str) -> dict:
 # 14
 @mcp.tool()
 def api_health() -> dict:
-    """Check that the inventory API is up and reachable. Takes no arguments."""
-    return _get("/health")
+    """Check that the inventory API is up and reachable. Takes no arguments.
+    latency_ms is how long the API took to answer, in milliseconds."""
+    start = time.perf_counter()
+    data = _get("/health")
+    return {**data, "latency_ms": round((time.perf_counter() - start) * 1000, 1)}
 
 
 # 15
@@ -213,6 +217,14 @@ def inventory_value() -> dict:
 def recent_orders() -> dict:
     """The five most recent orders, newest first. Takes no arguments."""
     return _get("/orders", {"limit": 5})
+
+
+# 17
+@mcp.tool()
+def reorder_suggestions() -> dict:
+    """Products below their minimum stock, how many units to order and the estimated cost.
+    Takes no arguments."""
+    return _get("/products/reorder-suggestions")
 
 
 if __name__ == "__main__":

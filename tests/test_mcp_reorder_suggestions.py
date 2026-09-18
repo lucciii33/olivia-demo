@@ -1,4 +1,4 @@
-"""MCP tool api_health — checks the API is up, with no arguments."""
+"""MCP tool reorder_suggestions — what to restock, no arguments."""
 import asyncio
 
 import pytest
@@ -21,20 +21,16 @@ def api(client, monkeypatch):
     return calls
 
 
-def test_calls_health(api):
-    body = mcp_server.api_health()
-    assert api == [("/health", None)]
-    assert body["status"] == "ok"
+def test_calls_the_reorder_suggestions_endpoint(api):
+    body = mcp_server.reorder_suggestions()
+    assert api == [("/products/reorder-suggestions", None)]
+    assert body["count"] == 2
+    assert body["total_units"] == 157
+    assert body["estimated_cost"] == 396.0
+    assert [i["sku"] for i in body["items"]] == ["ACC-TAPE-01", "LINE-DYN-06"]
 
 
 def test_takes_no_arguments():
-    tool = next(t for t in asyncio.run(mcp_server.mcp.list_tools()) if t.name == "api_health")
+    tool = next(t for t in asyncio.run(mcp_server.mcp.list_tools())
+                if t.name == "reorder_suggestions")
     assert tool.input_schema.get("properties", {}) == {}
-
-
-def test_reports_latency_in_milliseconds(api):
-    body = mcp_server.api_health()
-    assert isinstance(body["latency_ms"], float)
-    assert body["latency_ms"] >= 0
-    assert {"status", "service", "time"} <= body.keys()
-
