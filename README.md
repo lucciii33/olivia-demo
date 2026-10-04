@@ -8,7 +8,7 @@ original fue modificado.
 
 ## Qué incluye
 
-- **`app.py`** — API REST con **26 endpoints** (FastAPI).
+- **`app.py`** — API REST con **27 endpoints** (FastAPI).
 - **`mcp_server.py`** — servidor **MCP con 14 tools** que consumen la API.
 - **`db.py`** — SQLite: esquema + datos de demo (se autogenera al arrancar).
 - **`auth.py`** — protección con **API key O Bearer token** (basta con uno).
@@ -47,7 +47,7 @@ curl localhost:8000/products -H "X-API-Key: demo-api-key-123"
 curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-abc"
 ```
 
-## Los 26 endpoints
+## Los 27 endpoints
 
 | #  | Método | Ruta                                  | Qué hace |
 |----|--------|---------------------------------------|----------|
@@ -68,7 +68,7 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 16 | GET    | `/orders/search`                      | Buscar órdenes por fecha, cliente o monto |
 | 17 | GET    | `/products/{id}/orders`               | Historial de ventas de un producto |
 | 18 | GET    | `/stats/sales-by-month`               | Ventas por mes (filtro opcional por año) y mejor mes |
-| 19 | POST   | `/products/bulk-adjust`               | Ajustar stock de varios productos (todo o nada) |
+| 19 | POST   | `/products/bulk-adjust`               | Ajustar stock de varios productos (todo o nada, con `total_delta`) |
 | 20 | GET    | `/products/by-sku/{sku}`              | Ver un producto por SKU |
 | 21 | GET    | `/stats/orders-by-status`             | Órdenes y monto por estado |
 | 22 | GET    | `/orders/by-number/{order_number}`    | Ver orden por número (ej. `ORD-2026-0001`) |
@@ -77,6 +77,7 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 25 | GET    | `/stats/product-margins`              | Margen de cada producto, de mayor a menor (con promedio) |
 | 26 | GET    | `/stats/stock-by-unit`                | Stock agrupado por unidad de medida (con total) |
 | 27 | GET    | `/stats/dead-stock`                   | Productos que nunca se vendieron y su costo |
+| 28 | GET    | `/stats/top-customers`                | Cuánto compró cada cliente, de mayor a menor |
 
 ## Las 14 MCP tools
 
