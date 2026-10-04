@@ -8,7 +8,7 @@ original fue modificado.
 
 ## Qué incluye
 
-- **`app.py`** — API REST con **25 endpoints** (FastAPI).
+- **`app.py`** — API REST con **26 endpoints** (FastAPI).
 - **`mcp_server.py`** — servidor **MCP con 14 tools** que consumen la API.
 - **`db.py`** — SQLite: esquema + datos de demo (se autogenera al arrancar).
 - **`auth.py`** — protección con **API key O Bearer token** (basta con uno).
@@ -47,7 +47,7 @@ curl localhost:8000/products -H "X-API-Key: demo-api-key-123"
 curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-abc"
 ```
 
-## Los 25 endpoints
+## Los 26 endpoints
 
 | #  | Método | Ruta                                  | Qué hace |
 |----|--------|---------------------------------------|----------|
@@ -75,7 +75,8 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 23 | GET    | `/stats/inventory-value`              | Valor del inventario a costo, a venta y margen |
 | 24 | GET    | `/products/reorder-suggestions`       | Qué productos reponer, cuánto (con total de unidades) y a qué costo |
 | 25 | GET    | `/stats/product-margins`              | Margen de cada producto, de mayor a menor (con promedio) |
-| 26 | GET    | `/stats/stock-by-unit`                | Stock agrupado por unidad de medida |
+| 26 | GET    | `/stats/stock-by-unit`                | Stock agrupado por unidad de medida (con total) |
+| 27 | GET    | `/stats/dead-stock`                   | Productos que nunca se vendieron y su costo |
 
 ## Las 14 MCP tools
 

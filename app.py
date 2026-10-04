@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 25 endpoints.
+FastAPI + SQLite. Exactly 26 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -763,7 +763,48 @@ def stats_stock_by_unit():
                GROUP BY unit
                ORDER BY unit ASC"""
         ).fetchall()
-        return {"count": len(rows), "units": [dict(r) for r in rows]}
+        units = [dict(r) for r in rows]
+        return {
+            "count": len(units),
+            "total_quantity": sum(u["quantity"] for u in units),
+            "units": units,
+        }
+    finally:
+        conn.close()
+
+
+# 27. Dead stock (never sold)
+@app.get("/stats/dead-stock", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_dead_stock():
+    conn = get_conn()
+    try:
+        # A product counts as sold only through orders that were not cancelled.
+        rows = conn.execute(
+            """SELECT * FROM products p
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM order_items oi
+                   JOIN orders o ON o.id = oi.order_id
+                   WHERE oi.product_id = p.id AND o.status != 'cancelled'
+               )
+               ORDER BY p.quantity * p.cost_price DESC"""
+        ).fetchall()
+        items = [
+            {
+                "id": r["id"],
+                "sku": r["sku"],
+                "name": r["name"],
+                "quantity": r["quantity"],
+                "cost_price": r["cost_price"],
+                "cost_value": round(r["quantity"] * r["cost_price"], 2),
+            }
+            for r in rows
+        ]
+        return {
+            "count": len(items),
+            "cost_value": round(sum(i["cost_value"] for i in items), 2),
+            "currency": "USD",
+            "items": items,
+        }
     finally:
         conn.close()
 

@@ -22,7 +22,8 @@ def test_needs_no_parameters(client, api_key_headers):
 
 
 def test_seed_groups(client, api_key_headers):
-    assert _by_unit(client, api_key_headers).json() == {"count": 3, "units": SEED}
+    assert _by_unit(client, api_key_headers).json() == {
+        "count": 3, "total_quantity": 374, "units": SEED}
 
 
 def test_totals_match_the_products(client, api_key_headers):
@@ -39,3 +40,17 @@ def test_new_unit_shows_up(client, api_key_headers):
     body = _by_unit(client, api_key_headers).json()
     assert body["count"] == 4
     assert {"unit": "kg", "products": 1, "quantity": 12, "low_stock_products": 0} in body["units"]
+
+
+def test_total_quantity_adds_up_the_units(client, api_key_headers):
+    body = _by_unit(client, api_key_headers).json()
+    assert body["total_quantity"] == 374  # 44 + 60 + 270
+    assert body["total_quantity"] == sum(u["quantity"] for u in body["units"])
+
+
+def test_total_quantity_follows_a_new_product(client, api_key_headers):
+    before = _by_unit(client, api_key_headers).json()["total_quantity"]
+    client.post("/products", headers=api_key_headers,
+                json={"name": "Resina", "sku": "RES-2", "unit": "kg", "quantity": 12})
+    assert _by_unit(client, api_key_headers).json()["total_quantity"] == before + 12
+
