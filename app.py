@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 26 endpoints.
+FastAPI + SQLite. Exactly 27 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -223,7 +223,12 @@ def bulk_adjust_stock(body: BulkAdjustIn):
                 "quantity": updated["quantity"],
                 "low_stock": updated["low_stock"],
             })
-        return {"count": len(adjusted), "reason": body.reason, "adjusted": adjusted}
+        return {
+            "count": len(adjusted),
+            "total_delta": sum(a["delta"] for a in adjusted),
+            "reason": body.reason,
+            "adjusted": adjusted,
+        }
     finally:
         conn.close()
 
@@ -802,6 +807,31 @@ def stats_dead_stock():
         return {
             "count": len(items),
             "cost_value": round(sum(i["cost_value"] for i in items), 2),
+            "currency": "USD",
+            "items": items,
+        }
+    finally:
+        conn.close()
+
+
+# 28. Top customers by revenue
+@app.get("/stats/top-customers", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_top_customers():
+    conn = get_conn()
+    try:
+        # Cancelled orders are left out, like every other revenue figure.
+        rows = conn.execute(
+            """SELECT customer_name, customer_email,
+                      COUNT(*) AS orders, SUM(total) AS revenue
+               FROM orders
+               WHERE status != 'cancelled'
+               GROUP BY customer_name, customer_email
+               ORDER BY revenue DESC"""
+        ).fetchall()
+        items = [{**dict(r), "revenue": round(r["revenue"], 2)} for r in rows]
+        return {
+            "count": len(items),
+            "revenue": round(sum(i["revenue"] for i in items), 2),
             "currency": "USD",
             "items": items,
         }

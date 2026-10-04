@@ -101,3 +101,18 @@ def test_single_product_routes_still_work(client, api_key_headers):
     res = client.post("/products/7/adjust-stock", headers=api_key_headers, json={"delta": 1})
     assert res.status_code == 200
     assert res.json()["product"]["quantity"] == 4
+
+
+def test_total_delta_sums_the_adjustments(client, api_key_headers):
+    body = _bulk(client, api_key_headers, [
+        {"sku": TAPE, "delta": 20},
+        {"sku": DYNEEMA, "delta": 50},
+        {"sku": SHACKLE, "delta": -30},
+    ]).json()
+    assert body["total_delta"] == 40  # 20 + 50 - 30
+    assert body["total_delta"] == sum(a["delta"] for a in body["adjusted"])
+
+
+def test_total_delta_of_a_single_line(client, api_key_headers):
+    assert _bulk(client, api_key_headers, [{"sku": TAPE, "delta": 7}]).json()["total_delta"] == 7
+
