@@ -214,9 +214,13 @@ def inventory_value() -> dict:
 
 # 16
 @mcp.tool()
-def recent_orders() -> dict:
-    """The five most recent orders, newest first. Takes no arguments."""
-    return _get("/orders", {"limit": 5})
+def recent_orders(limit: int = 5) -> dict:
+    """The most recent orders, newest first.
+
+    Defaults to the five newest; raise limit to ask for more. total_count in the
+    result says how many orders exist in all.
+    """
+    return _get("/orders", {"limit": limit})
 
 
 # 17

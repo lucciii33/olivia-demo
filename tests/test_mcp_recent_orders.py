@@ -47,6 +47,28 @@ def test_returns_only_the_five_newest(api, client, api_key_headers):
     assert [o["id"] for o in body["items"]] == [o["id"] for o in reversed(created)][:5]
 
 
-def test_takes_no_arguments():
+def test_limit_is_optional_in_the_tool_schema():
     tool = next(t for t in asyncio.run(mcp_server.mcp.list_tools()) if t.name == "recent_orders")
-    assert tool.input_schema.get("properties", {}) == {}
+    assert tool.input_schema["properties"]["limit"]["default"] == 5
+    assert tool.input_schema.get("required", []) == []
+
+
+def test_limit_is_forwarded(api):
+    mcp_server.recent_orders(limit=20)
+    assert api == [("/orders", {"limit": 20})]
+
+
+def test_limit_caps_the_page(api, client, api_key_headers):
+    for n in range(4):
+        _order(client, api_key_headers, f"Cliente {n}")
+    body = mcp_server.recent_orders(limit=3)
+    assert body["count"] == 3
+    assert body["total_count"] == 6  # 2 from the seed plus the 4 above
+
+
+def test_a_bigger_limit_brings_everything(api, client, api_key_headers):
+    for n in range(4):
+        _order(client, api_key_headers, f"Cliente {n}")
+    body = mcp_server.recent_orders(limit=50)
+    assert body["count"] == body["total_count"] == 6
+
