@@ -93,7 +93,7 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 13. `order_by_number` — ver una orden por su número
 14. `api_health` — chequear que la API esté arriba (con latencia)
 15. `inventory_value` — valor del inventario a costo, a venta y margen
-16. `recent_orders` — las 5 órdenes más recientes
+16. `recent_orders` — las órdenes más recientes (5 por defecto, `limit` para pedir más)
 17. `reorder_suggestions` — qué productos reponer y cuánto
 
 ### Conectar el MCP a Claude Desktop / VS Code
