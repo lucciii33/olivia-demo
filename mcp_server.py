@@ -1,5 +1,5 @@
 """
-Sailtrim Demo MCP server — 8 tools.
+Sailtrim Demo MCP server — 15 tools.
 
 The MCP tools call the protected REST API over HTTP, authenticating with the
 API key (or Bearer token). This proves the auth layer end to end and keeps a
@@ -10,6 +10,8 @@ Run the API first (python app.py), then run this server:
     MCP_TRANSPORT=streamable-http python mcp_server.py   # HTTP on :9000
 """
 import os
+import time
+from urllib.parse import quote
 
 import httpx
 
@@ -63,9 +65,22 @@ def _patch(path, json):
 
 # 1
 @mcp.tool()
-def list_products(query: str = "", low_stock_only: bool = False, limit: int = 20) -> dict:
-    """List inventory products, optionally filtered by a search term or low-stock flag."""
-    return _get("/products", {"q": query or None, "low_stock": low_stock_only, "limit": limit})
+def list_products(query: str = "", low_stock_only: bool = False, limit: int = 20,
+                  offset: int = 0) -> dict:
+    """List inventory products, optionally filtered by a search term or low-stock flag.
+
+    Page through results with limit and offset; has_more says whether another page
+    exists. Descriptions are left out to keep listings short: use get_product for them.
+    """
+    # Ask for one extra row: if it comes back, there is another page.
+    data = _get("/products", {"q": query or None, "low_stock": low_stock_only,
+                              "limit": limit + 1, "offset": offset})
+    page = data["items"][:limit]
+    return {
+        "count": len(page),
+        "has_more": len(data["items"]) > limit,
+        "items": [{k: v for k, v in p.items() if k != "description"} for p in page],
+    }
 
 
 # 2
@@ -75,29 +90,16 @@ def get_product(product_id: int) -> dict:
     return _get(f"/products/{product_id}")
 
 
-# 3
-@mcp.tool()
-def check_low_stock() -> dict:
-    """Return every product at or below its minimum stock threshold (reorder alerts)."""
-    return _get("/products/low-stock")
-
-
-# 4
-@mcp.tool()
-def adjust_stock(product_id: int, delta: int, reason: str = "") -> dict:
-    """Adjust a product's stock. Use a positive delta to add units, negative to remove."""
-    return _post(f"/products/{product_id}/adjust-stock", {"delta": delta, "reason": reason})
-
-
 # 5
 @mcp.tool()
 def create_order(customer_name: str, items: list[dict], customer_email: str = "",
-                 notes: str = "") -> dict:
+                 notes: str = "", customer_phone: str = "") -> dict:
     """Create an order and deduct stock.
     `items` is a list like [{"sku": "SAIL-MAIN-052", "quantity": 2}]."""
     payload = {
         "customer_name": customer_name,
         "customer_email": customer_email or None,
+        "customer_phone": customer_phone or None,
         "items": items,
         "notes": notes or None,
     }
@@ -107,20 +109,129 @@ def create_order(customer_name: str, items: list[dict], customer_email: str = ""
 # 6
 @mcp.tool()
 def set_order_status(order_id: int, status: str) -> dict:
-    """Update an order's status (pending | accepted | cancelled). Cancelling restocks items."""
-    return _patch(f"/orders/{order_id}/status", {"status": status})
+    """Update an order's status (pending | accepted | cancelled). Cancelling restocks items.
+
+    The result includes previous_status, the status the order had before this call.
+    """
+    previous = _get(f"/orders/{order_id}", {"include_items": False})["status"]
+    order = _patch(f"/orders/{order_id}/status", {"status": status})
+    return {**order, "previous_status": previous}
 
 
 # 7
 @mcp.tool()
-def business_dashboard() -> dict:
-    """Get a business snapshot: inventory value, revenue, low-stock count and top sellers."""
+def business_dashboard(top_limit: int = 5) -> dict:
+    """Get a business snapshot: inventory value, revenue, low-stock products and top sellers.
+
+    top_limit sets how many top-selling products to include (default 5).
+    low_stock_items lists which products are at or below their minimum stock.
+    """
     overview = _get("/stats/overview")
-    top = _get("/stats/top-products", {"limit": 5})
-    return {"overview": overview, "top_products": top["items"]}
+    top = _get("/stats/top-products", {"limit": top_limit})
+    low = _get("/products/low-stock")
+    return {
+        "overview": overview,
+        "top_products": top["items"],
+        "low_stock_items": [
+            {"sku": p["sku"], "name": p["name"], "quantity": p["quantity"]}
+            for p in low["items"]
+        ],
+    }
 
 
-# 8
+# 9
+@mcp.tool()
+def search_orders(date_from: str = "", date_to: str = "", customer: str = "",
+                  min_total: float | None = None, status: str = "", limit: int = 20,
+                  offset: int = 0) -> dict:
+    """Search orders by date range (YYYY-MM-DD, inclusive), customer name/email,
+    minimum total and status (pending | accepted | cancelled). All filters combine.
+    Use offset with limit to page through the results."""
+    params = {
+        "from": date_from or None,
+        "to": date_to or None,
+        "customer": customer or None,
+        "min_total": min_total,
+        "status": status or None,
+        "limit": limit,
+        "offset": offset or None,
+    }
+    return _get("/orders/search", {k: v for k, v in params.items() if v is not None})
+
+
+# 10
+@mcp.tool()
+def product_sales_history(product_id: int, include_cancelled: bool = False) -> dict:
+    """Every order that included a product, with units sold and revenue.
+    Cancelled orders are left out unless include_cancelled is true."""
+    return _get(f"/products/{product_id}/orders", {"include_cancelled": include_cancelled})
+
+
+# 11
+@mcp.tool()
+def get_product_by_sku(sku: str) -> dict:
+    """Get full details of a single product by its exact SKU (e.g. SAIL-MAIN-052)."""
+    # Encode the SKU so characters like '#' or spaces stay part of the path.
+    return _get(f"/products/by-sku/{quote(sku, safe='')}")
+
+
+# 12
+@mcp.tool()
+def orders_by_status() -> dict:
+    """Order count and total amount for each status (pending, accepted, cancelled).
+    Every status is listed, with zeros when it has no orders.
+    cancelled_percent is the share of all orders that were cancelled, from 0 to 100."""
+    data = _get("/stats/orders-by-status")
+    cancelled = next(s["orders"] for s in data["statuses"] if s["status"] == "cancelled")
+    total = data["total_orders"]
+    return {**data, "cancelled_percent": round(100 * cancelled / total, 1) if total else 0.0}
+
+
+# 13
+@mcp.tool()
+def order_by_number(order_number: str) -> dict:
+    """Get one order by its order number (e.g. ORD-2026-0001), with its line items."""
+    return _get(f"/orders/by-number/{quote(order_number, safe='')}")
+
+
+# 14
+@mcp.tool()
+def api_health() -> dict:
+    """Check that the inventory API is up and reachable. Takes no arguments.
+    latency_ms is how long the API took to answer, in milliseconds."""
+    start = time.perf_counter()
+    data = _get("/health")
+    return {**data, "latency_ms": round((time.perf_counter() - start) * 1000, 1)}
+
+
+# 15
+@mcp.tool()
+def inventory_value() -> dict:
+    """Value of the stock on hand at cost and at sale price, plus the potential margin.
+    Takes no arguments."""
+    return _get("/stats/inventory-value")
+
+
+# 16
+@mcp.tool()
+def recent_orders(limit: int = 5) -> dict:
+    """The most recent orders, newest first.
+
+    Defaults to the five newest; raise limit to ask for more. total_count in the
+    result says how many orders exist in all.
+    """
+    return _get("/orders", {"limit": limit})
+
+
+# 17
+@mcp.tool()
+def reorder_suggestions() -> dict:
+    """Products below their minimum stock, how many units to order and the estimated cost.
+    Takes no arguments."""
+    return _get("/products/reorder-suggestions")
+
+
+# 18
 @mcp.tool()
 def busiest_day() -> dict:
     """The day with the most orders, plus orders and revenue per day. Takes no arguments."""

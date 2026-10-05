@@ -8,8 +8,8 @@ original fue modificado.
 
 ## Qué incluye
 
-- **`app.py`** — API REST con **17 endpoints** (FastAPI).
-- **`mcp_server.py`** — servidor **MCP con 8 tools** que consumen la API.
+- **`app.py`** — API REST con **28 endpoints** (FastAPI).
+- **`mcp_server.py`** — servidor **MCP con 15 tools** que consumen la API.
 - **`db.py`** — SQLite: esquema + datos de demo (se autogenera al arrancar).
 - **`auth.py`** — protección con **API key O Bearer token** (basta con uno).
 
@@ -47,7 +47,7 @@ curl localhost:8000/products -H "X-API-Key: demo-api-key-123"
 curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-abc"
 ```
 
-## Los 17 endpoints
+## Los 28 endpoints
 
 | #  | Método | Ruta                                  | Qué hace |
 |----|--------|---------------------------------------|----------|
@@ -56,29 +56,47 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 3  | GET    | `/products`                           | Listar / buscar productos |
 | 4  | GET    | `/products/low-stock`                 | Productos con stock bajo |
 | 5  | GET    | `/products/{id}`                      | Ver un producto |
-| 6  | PUT    | `/products/{id}`                      | Actualizar producto |
+| 6  | PUT    | `/products/{id}`                      | Actualizar producto (devuelve `updated_fields`) |
 | 7  | DELETE | `/products/{id}`                      | Eliminar producto |
 | 8  | POST   | `/products/{id}/adjust-stock`         | Ajustar stock (+/-) |
 | 9  | POST   | `/orders`                             | Crear orden (descuenta stock) |
 | 10 | GET    | `/orders`                             | Listar órdenes |
-| 11 | GET    | `/orders/{id}`                        | Ver orden con ítems |
+| 11 | GET    | `/orders/{id}`                        | Ver orden con ítems (`?include_items=false` los omite) |
 | 12 | PATCH  | `/orders/{id}/status`                 | Cambiar estado (cancelar repone stock) |
-| 13 | GET    | `/customers`                          | Clientes (derivados de órdenes) |
 | 14 | GET    | `/stats/overview`                     | Métricas: inventario, ventas, stock bajo |
 | 15 | GET    | `/stats/top-products`                 | Productos más vendidos |
 | 16 | GET    | `/orders/search`                      | Buscar órdenes por fecha, cliente o monto |
-| 17 | GET    | `/stats/busiest-day`                  | Día con más órdenes, y órdenes por día |
+| 17 | GET    | `/products/{id}/orders`               | Historial de ventas de un producto |
+| 18 | GET    | `/stats/sales-by-month`               | Ventas por mes (filtro opcional por año) y mejor mes |
+| 19 | POST   | `/products/bulk-adjust`               | Ajustar stock de varios productos (todo o nada, con `total_delta`) |
+| 20 | GET    | `/products/by-sku/{sku}`              | Ver un producto por SKU |
+| 21 | GET    | `/stats/orders-by-status`             | Órdenes y monto por estado |
+| 22 | GET    | `/orders/by-number/{order_number}`    | Ver orden por número (ej. `ORD-2026-0001`) |
+| 23 | GET    | `/stats/inventory-value`              | Valor del inventario a costo, a venta y margen |
+| 24 | GET    | `/products/reorder-suggestions`       | Qué productos reponer, cuánto (con total de unidades) y a qué costo |
+| 25 | GET    | `/stats/product-margins`              | Margen de cada producto, de mayor a menor (con promedio) |
+| 26 | GET    | `/stats/stock-by-unit`                | Stock agrupado por unidad de medida (con total) |
+| 27 | GET    | `/stats/dead-stock`                   | Productos que nunca se vendieron y su costo |
+| 28 | GET    | `/stats/top-customers`                | Cuánto compró cada cliente, de mayor a menor |
+| 29 | GET    | `/stats/busiest-day`                  | Día con más órdenes, y órdenes por día |
 
-## Las 8 MCP tools
+## Las 15 MCP tools
 
-1. `list_products` — listar/buscar productos
+1. `list_products` — listar/buscar productos (paginado con `offset`)
 2. `get_product` — detalle de un producto
-3. `check_low_stock` — alertas de reposición
-4. `adjust_stock` — ajustar inventario
-5. `create_order` — crear orden y descontar stock
-6. `set_order_status` — cambiar estado de una orden
+5. `create_order` — crear orden y descontar stock (acepta teléfono del cliente)
+6. `set_order_status` — cambiar estado de una orden (devuelve también el estado anterior)
 7. `business_dashboard` — resumen de negocio + top ventas
-8. `busiest_day` — día con más órdenes
+9. `search_orders` — buscar órdenes por fecha, cliente, monto o estado (paginado con `offset`)
+10. `product_sales_history` — historial de ventas de un producto
+11. `get_product_by_sku` — detalle de un producto por SKU
+12. `orders_by_status` — órdenes y monto por estado (incluye % de canceladas)
+13. `order_by_number` — ver una orden por su número
+14. `api_health` — chequear que la API esté arriba (con latencia)
+15. `inventory_value` — valor del inventario a costo, a venta y margen
+16. `recent_orders` — las órdenes más recientes (5 por defecto, `limit` para pedir más)
+17. `reorder_suggestions` — qué productos reponer y cuánto
+18. `busiest_day` — día con más órdenes
 
 ### Conectar el MCP a Claude Desktop / VS Code
 
@@ -136,3 +154,13 @@ Ambos scripts leen `$PORT`, asi que funcionan igual en local y en Render.
 El disco es efimero: `demo.db` se regenera desde el seed en cada deploy y cada
 reinicio. Para un demo alcanza. Para conservar datos hace falta un disco pago,
 montado y apuntado con `DB_PATH` (ver el comentario en `render.yaml`).
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Cada test corre contra una base SQLite nueva en un directorio temporal, asi que
+nunca tocan `demo.db`.

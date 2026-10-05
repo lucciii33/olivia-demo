@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 17 endpoints.
+FastAPI + SQLite. Exactly 28 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -55,6 +55,16 @@ class ProductUpdate(BaseModel):
 
 class StockAdjust(BaseModel):
     delta: int = Field(..., description="Positive to add stock, negative to remove")
+    reason: Optional[str] = None
+
+
+class BulkAdjustItem(BaseModel):
+    sku: str
+    delta: int = Field(..., description="Positive to add stock, negative to remove")
+
+
+class BulkAdjustIn(BaseModel):
+    items: list[BulkAdjustItem] = Field(..., min_length=1, max_length=100)
     reason: Optional[str] = None
 
 
@@ -169,6 +179,111 @@ def low_stock_products():
         conn.close()
 
 
+# 19. Bulk stock adjustment (all or nothing)
+# Declared before the /products/{product_id} routes, like /products/low-stock.
+@app.post("/products/bulk-adjust", tags=["products"], dependencies=[Depends(require_auth)])
+def bulk_adjust_stock(body: BulkAdjustIn):
+    skus = [item.sku for item in body.items]
+    duplicates = sorted({s for s in skus if skus.count(s) > 1})
+    if duplicates:
+        raise HTTPException(status_code=400,
+                            detail=f"Each SKU may appear once; repeated: {', '.join(duplicates)}")
+    conn = get_conn()
+    try:
+        # Validate every line before writing anything, so a bad line leaves
+        # the whole inventory untouched.
+        plan = []
+        for item in body.items:
+            row = conn.execute("SELECT * FROM products WHERE sku = ?", (item.sku,)).fetchone()
+            if not row:
+                raise HTTPException(status_code=400, detail=f"Unknown SKU '{item.sku}'")
+            new_qty = row["quantity"] + item.delta
+            if new_qty < 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient stock for {item.sku}: have {row['quantity']}, delta {item.delta}",
+                )
+            plan.append((row, item.delta, new_qty))
+
+        ts = now_iso()
+        for row, _, new_qty in plan:
+            conn.execute("UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?",
+                         (new_qty, ts, row["id"]))
+        conn.commit()
+
+        adjusted = []
+        for row, delta, _ in plan:
+            updated = _product_dict(
+                conn.execute("SELECT * FROM products WHERE id = ?", (row["id"],)).fetchone())
+            adjusted.append({
+                "product_id": updated["id"],
+                "sku": updated["sku"],
+                "previous_quantity": row["quantity"],
+                "delta": delta,
+                "quantity": updated["quantity"],
+                "low_stock": updated["low_stock"],
+            })
+        return {
+            "count": len(adjusted),
+            "total_delta": sum(a["delta"] for a in adjusted),
+            "reason": body.reason,
+            "adjusted": adjusted,
+        }
+    finally:
+        conn.close()
+
+
+# 24. Reorder suggestions
+# Declared before the /products/{product_id} routes, like /products/low-stock.
+@app.get("/products/reorder-suggestions", tags=["products"],
+         dependencies=[Depends(require_auth)])
+def reorder_suggestions():
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM products WHERE quantity <= minimum_stock ORDER BY quantity ASC"
+        ).fetchall()
+        items = []
+        for r in rows:
+            # Restock up to twice the minimum so the product clears the threshold with margin.
+            suggested = 2 * r["minimum_stock"] - r["quantity"]
+            if suggested <= 0:  # only when minimum and quantity are both 0
+                continue
+            items.append({
+                "id": r["id"],
+                "sku": r["sku"],
+                "name": r["name"],
+                "quantity": r["quantity"],
+                "minimum_stock": r["minimum_stock"],
+                "suggested_order": suggested,
+                "estimated_cost": round(suggested * r["cost_price"], 2),
+            })
+        return {
+            "count": len(items),
+            "total_units": sum(i["suggested_order"] for i in items),
+            "estimated_cost": round(sum(i["estimated_cost"] for i in items), 2),
+            "currency": "USD",
+            "items": items,
+        }
+    finally:
+        conn.close()
+
+
+# 20. Get product by SKU
+# Declared before the /products/{product_id} routes: /products/by-sku/orders
+# would otherwise match /products/{product_id}/orders.
+@app.get("/products/by-sku/{sku}", tags=["products"], dependencies=[Depends(require_auth)])
+def get_product_by_sku(sku: str):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM products WHERE sku = ?", (sku,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"No product with SKU '{sku}'")
+        return _product_dict(row)
+    finally:
+        conn.close()
+
+
 # 5. Get product
 @app.get("/products/{product_id}", tags=["products"], dependencies=[Depends(require_auth)])
 def get_product(product_id: int):
@@ -191,6 +306,8 @@ def update_product(product_id: int, body: ProductUpdate):
         if not row:
             raise HTTPException(status_code=404, detail="Product not found")
         fields = {k: v for k, v in body.model_dump().items() if v is not None}
+        # The fields this request set, captured before updated_at joins them.
+        updated_fields = list(fields)
         if fields:
             fields["updated_at"] = now_iso()
             sets = ", ".join(f"{k} = ?" for k in fields)
@@ -198,7 +315,7 @@ def update_product(product_id: int, body: ProductUpdate):
                          [*fields.values(), product_id])
             conn.commit()
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-        return _product_dict(row)
+        return {**_product_dict(row), "updated_fields": updated_fields}
     finally:
         conn.close()
 
@@ -208,11 +325,12 @@ def update_product(product_id: int, body: ProductUpdate):
 def delete_product(product_id: int):
     conn = get_conn()
     try:
-        cur = conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
-        conn.commit()
-        if cur.rowcount == 0:
+        row = conn.execute("SELECT sku FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="Product not found")
-        return {"deleted": True, "id": product_id}
+        conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
+        conn.commit()
+        return {"deleted": True, "id": product_id, "sku": row["sku"]}
     finally:
         conn.close()
 
@@ -235,6 +353,38 @@ def adjust_stock(product_id: int, body: StockAdjust):
         conn.commit()
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
         return {"product": _product_dict(row), "applied_delta": body.delta, "reason": body.reason}
+    finally:
+        conn.close()
+
+
+# 17. Product order history
+@app.get("/products/{product_id}/orders", tags=["products"],
+         dependencies=[Depends(require_auth)])
+def product_orders(
+    product_id: int,
+    include_cancelled: bool = Query(False, description="Also list cancelled orders"),
+):
+    conn = get_conn()
+    try:
+        product = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        sql = """SELECT o.id AS order_id, o.order_number, o.customer_name, o.status,
+                        o.created_at, oi.quantity, oi.unit_price, oi.subtotal
+                 FROM order_items oi
+                 JOIN orders o ON o.id = oi.order_id
+                 WHERE oi.product_id = ?"""
+        if not include_cancelled:
+            sql += " AND o.status != 'cancelled'"
+        sql += " ORDER BY o.created_at DESC"
+        rows = [dict(r) for r in conn.execute(sql, (product_id,)).fetchall()]
+        return {
+            "product": _product_dict(product),
+            "orders_count": len(rows),
+            "units_sold": sum(r["quantity"] for r in rows),
+            "revenue": round(sum(r["subtotal"] for r in rows), 2),
+            "items": rows,
+        }
     finally:
         conn.close()
 
@@ -292,18 +442,29 @@ def create_order(body: OrderIn):
 
 # 10. List orders
 @app.get("/orders", tags=["orders"], dependencies=[Depends(require_auth)])
-def list_orders(status: Optional[str] = None, limit: int = 50, offset: int = 0):
+def list_orders(
+    status: Optional[str] = None,
+    customer: Optional[str] = Query(None, description="Partial match on customer name"),
+    limit: int = 50,
+    offset: int = 0,
+):
     conn = get_conn()
     try:
-        sql = "SELECT * FROM orders WHERE 1=1"
+        where = " WHERE 1=1"
         args: list = []
         if status:
-            sql += " AND status = ?"
+            where += " AND status = ?"
             args.append(status)
-        sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-        args += [limit, offset]
-        rows = conn.execute(sql, args).fetchall()
-        return {"count": len(rows), "items": [dict(r) for r in rows]}
+        if customer:
+            where += " AND customer_name LIKE ?"
+            args.append(f"%{customer}%")
+        # count is the size of this page; total_count ignores limit and offset.
+        total_count = conn.execute("SELECT COUNT(*) AS c FROM orders" + where, args).fetchone()["c"]
+        rows = conn.execute(
+            "SELECT * FROM orders" + where + " ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            [*args, limit, offset],
+        ).fetchall()
+        return {"count": len(rows), "total_count": total_count, "items": [dict(r) for r in rows]}
     finally:
         conn.close()
 
@@ -360,12 +521,39 @@ def search_orders(
         conn.close()
 
 
-# 11. Get order (with items)
-@app.get("/orders/{order_id}", tags=["orders"], dependencies=[Depends(require_auth)])
-def get_order(order_id: int):
+# 22. Get order by order number
+# Declared before the /orders/{order_id} routes, like /orders/search.
+@app.get("/orders/by-number/{order_number}", tags=["orders"],
+         dependencies=[Depends(require_auth)])
+def get_order_by_number(order_number: str):
     conn = get_conn()
     try:
-        return _order_with_items(conn, order_id)
+        row = conn.execute("SELECT id FROM orders WHERE order_number = ?",
+                           (order_number,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No order with number '{order_number}'")
+    # Same response as GET /orders/{order_id}.
+    return get_order(row["id"], include_items=True)
+
+
+# 11. Get order (with items)
+@app.get("/orders/{order_id}", tags=["orders"], dependencies=[Depends(require_auth)])
+def get_order(
+    order_id: int,
+    include_items: bool = Query(True, description="Set to false to omit the line items"),
+):
+    conn = get_conn()
+    try:
+        # Shape this response here, not in _order_with_items: that helper also
+        # builds the POST /orders and PATCH /orders/{id}/status responses.
+        order = _order_with_items(conn, order_id)
+        order["items_count"] = len(order["items"])
+        order.pop("inventory_deducted")
+        if not include_items:
+            order.pop("items")
+        return order
     finally:
         conn.close()
 
@@ -392,23 +580,6 @@ def update_order_status(order_id: int, body: StatusIn):
                      (body.status, ts, order_id))
         conn.commit()
         return _order_with_items(conn, order_id)
-    finally:
-        conn.close()
-
-
-# 13. Customers (derived from orders)
-@app.get("/customers", tags=["customers"], dependencies=[Depends(require_auth)])
-def list_customers():
-    conn = get_conn()
-    try:
-        rows = conn.execute(
-            """SELECT customer_name, customer_email,
-                      COUNT(*) AS orders_count, SUM(total) AS total_spent
-               FROM orders
-               GROUP BY customer_name, customer_email
-               ORDER BY total_spent DESC"""
-        ).fetchall()
-        return {"count": len(rows), "items": [dict(r) for r in rows]}
     finally:
         conn.close()
 
@@ -465,7 +636,210 @@ def stats_top_products(limit: int = 5):
         conn.close()
 
 
-# 17. Busiest day
+# 18. Sales by month
+@app.get("/stats/sales-by-month", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_sales_by_month(
+    year: Optional[int] = Query(None, ge=2000, le=2100, description="Only this calendar year"),
+):
+    conn = get_conn()
+    try:
+        sql = """SELECT strftime('%Y-%m', o.created_at) AS month,
+                        COUNT(DISTINCT o.id) AS orders,
+                        SUM(oi.quantity) AS units_sold,
+                        SUM(oi.subtotal) AS revenue
+                 FROM orders o
+                 JOIN order_items oi ON oi.order_id = o.id
+                 WHERE o.status != 'cancelled'"""
+        args: list = []
+        if year is not None:
+            sql += " AND strftime('%Y', o.created_at) = ?"
+            args.append(str(year))
+        sql += " GROUP BY month ORDER BY month ASC"
+        months = [
+            {**dict(r), "revenue": round(r["revenue"], 2)}
+            for r in conn.execute(sql, args).fetchall()
+        ]
+        # Highest revenue wins; on a tie, max() keeps the earliest month.
+        best = max(months, key=lambda m: m["revenue"]) if months else None
+        return {
+            "year": year,
+            "months": months,
+            "totals": {
+                "orders": sum(m["orders"] for m in months),
+                "units_sold": sum(m["units_sold"] for m in months),
+                "revenue": round(sum(m["revenue"] for m in months), 2),
+            },
+            "best_month": best["month"] if best else None,
+        }
+    finally:
+        conn.close()
+
+
+# 21. Orders by status
+@app.get("/stats/orders-by-status", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_orders_by_status():
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) AS orders, SUM(total) AS total FROM orders GROUP BY status"
+        ).fetchall()
+        found = {r["status"]: r for r in rows}
+        # Always report every status, in lifecycle order, even when it has no orders.
+        statuses = [
+            {
+                "status": status,
+                "orders": found[status]["orders"] if status in found else 0,
+                "total": round(found[status]["total"], 2) if status in found else 0.0,
+            }
+            for status in ("pending", "accepted", "cancelled")
+        ]
+        return {"total_orders": sum(s["orders"] for s in statuses), "statuses": statuses}
+    finally:
+        conn.close()
+
+
+# 23. Inventory value
+@app.get("/stats/inventory-value", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_inventory_value():
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            """SELECT COUNT(*) AS products,
+                      COALESCE(SUM(quantity * cost_price), 0) AS cost_value,
+                      COALESCE(SUM(quantity * sale_price), 0) AS retail_value
+               FROM products"""
+        ).fetchone()
+        cost, retail = round(row["cost_value"], 2), round(row["retail_value"], 2)
+        return {
+            "products": row["products"],
+            "cost_value": cost,
+            "retail_value": retail,
+            "potential_margin": round(retail - cost, 2),
+            "currency": "USD",
+        }
+    finally:
+        conn.close()
+
+
+# 25. Product margins
+@app.get("/stats/product-margins", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_product_margins():
+    conn = get_conn()
+    try:
+        rows = conn.execute("SELECT id, sku, name, cost_price, sale_price FROM products").fetchall()
+    finally:
+        conn.close()
+    items = []
+    for r in rows:
+        margin = round(r["sale_price"] - r["cost_price"], 2)
+        items.append({
+            "id": r["id"],
+            "sku": r["sku"],
+            "name": r["name"],
+            "cost_price": r["cost_price"],
+            "sale_price": r["sale_price"],
+            "margin": margin,
+            # Share of the sale price that is profit; undefined when the price is 0.
+            "margin_percent": round(100 * margin / r["sale_price"], 1) if r["sale_price"] else None,
+        })
+    # Highest margin first; products without a price go last.
+    items.sort(key=lambda i: (i["margin_percent"] is None, -(i["margin_percent"] or 0)))
+    priced = [i["margin_percent"] for i in items if i["margin_percent"] is not None]
+    return {
+        "count": len(items),
+        "currency": "USD",
+        # Simple mean over products that have a sale price.
+        "average_margin_percent": round(sum(priced) / len(priced), 1) if priced else None,
+        "items": items,
+    }
+
+
+# 26. Stock by unit of measure
+@app.get("/stats/stock-by-unit", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_stock_by_unit():
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """SELECT unit,
+                      COUNT(*) AS products,
+                      SUM(quantity) AS quantity,
+                      SUM(CASE WHEN quantity <= minimum_stock THEN 1 ELSE 0 END) AS low_stock_products
+               FROM products
+               GROUP BY unit
+               ORDER BY unit ASC"""
+        ).fetchall()
+        units = [dict(r) for r in rows]
+        return {
+            "count": len(units),
+            "total_quantity": sum(u["quantity"] for u in units),
+            "units": units,
+        }
+    finally:
+        conn.close()
+
+
+# 27. Dead stock (never sold)
+@app.get("/stats/dead-stock", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_dead_stock():
+    conn = get_conn()
+    try:
+        # A product counts as sold only through orders that were not cancelled.
+        rows = conn.execute(
+            """SELECT * FROM products p
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM order_items oi
+                   JOIN orders o ON o.id = oi.order_id
+                   WHERE oi.product_id = p.id AND o.status != 'cancelled'
+               )
+               ORDER BY p.quantity * p.cost_price DESC"""
+        ).fetchall()
+        items = [
+            {
+                "id": r["id"],
+                "sku": r["sku"],
+                "name": r["name"],
+                "quantity": r["quantity"],
+                "cost_price": r["cost_price"],
+                "cost_value": round(r["quantity"] * r["cost_price"], 2),
+            }
+            for r in rows
+        ]
+        return {
+            "count": len(items),
+            "cost_value": round(sum(i["cost_value"] for i in items), 2),
+            "currency": "USD",
+            "items": items,
+        }
+    finally:
+        conn.close()
+
+
+# 28. Top customers by revenue
+@app.get("/stats/top-customers", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_top_customers():
+    conn = get_conn()
+    try:
+        # Cancelled orders are left out, like every other revenue figure.
+        rows = conn.execute(
+            """SELECT customer_name, customer_email,
+                      COUNT(*) AS orders, SUM(total) AS revenue
+               FROM orders
+               WHERE status != 'cancelled'
+               GROUP BY customer_name, customer_email
+               ORDER BY revenue DESC"""
+        ).fetchall()
+        items = [{**dict(r), "revenue": round(r["revenue"], 2)} for r in rows]
+        return {
+            "count": len(items),
+            "revenue": round(sum(i["revenue"] for i in items), 2),
+            "currency": "USD",
+            "items": items,
+        }
+    finally:
+        conn.close()
+
+
+# 29. Busiest day
 @app.get("/stats/busiest-day", tags=["stats"], dependencies=[Depends(require_auth)])
 def stats_busiest_day():
     conn = get_conn()
