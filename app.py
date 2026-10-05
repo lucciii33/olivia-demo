@@ -1,6 +1,6 @@
 """
 Sailtrim Demo API — Inventory & Orders
-FastAPI + SQLite. Exactly 16 endpoints.
+FastAPI + SQLite. Exactly 17 endpoints.
 
 Auth: every endpoint except GET /health requires EITHER an API key
 (X-API-Key header) OR a Bearer token (Authorization: Bearer <token>).
@@ -461,6 +461,29 @@ def stats_top_products(limit: int = 5):
             (limit,),
         ).fetchall()
         return {"count": len(rows), "items": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+# 17. Busiest day
+@app.get("/stats/busiest-day", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_busiest_day():
+    conn = get_conn()
+    try:
+        # Cancelled orders are left out, like every other revenue figure.
+        rows = conn.execute(
+            """SELECT date(created_at) AS day,
+                      COUNT(*) AS orders,
+                      SUM(total) AS revenue
+               FROM orders
+               WHERE status != 'cancelled'
+               GROUP BY day
+               ORDER BY day ASC"""
+        ).fetchall()
+        days = [{**dict(r), "revenue": round(r["revenue"], 2)} for r in rows]
+        # Most orders wins; on a tie, max() keeps the earliest day.
+        busiest = max(days, key=lambda d: d["orders"]) if days else None
+        return {"count": len(days), "busiest_day": busiest, "days": days}
     finally:
         conn.close()
 

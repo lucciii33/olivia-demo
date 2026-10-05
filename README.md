@@ -8,8 +8,8 @@ original fue modificado.
 
 ## Qué incluye
 
-- **`app.py`** — API REST con **16 endpoints** (FastAPI).
-- **`mcp_server.py`** — servidor **MCP con 7 tools** que consumen la API.
+- **`app.py`** — API REST con **17 endpoints** (FastAPI).
+- **`mcp_server.py`** — servidor **MCP con 8 tools** que consumen la API.
 - **`db.py`** — SQLite: esquema + datos de demo (se autogenera al arrancar).
 - **`auth.py`** — protección con **API key O Bearer token** (basta con uno).
 
@@ -47,7 +47,7 @@ curl localhost:8000/products -H "X-API-Key: demo-api-key-123"
 curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-abc"
 ```
 
-## Los 16 endpoints
+## Los 17 endpoints
 
 | #  | Método | Ruta                                  | Qué hace |
 |----|--------|---------------------------------------|----------|
@@ -67,8 +67,9 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 14 | GET    | `/stats/overview`                     | Métricas: inventario, ventas, stock bajo |
 | 15 | GET    | `/stats/top-products`                 | Productos más vendidos |
 | 16 | GET    | `/orders/search`                      | Buscar órdenes por fecha, cliente o monto |
+| 17 | GET    | `/stats/busiest-day`                  | Día con más órdenes, y órdenes por día |
 
-## Las 7 MCP tools
+## Las 8 MCP tools
 
 1. `list_products` — listar/buscar productos
 2. `get_product` — detalle de un producto
@@ -77,6 +78,7 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 5. `create_order` — crear orden y descontar stock
 6. `set_order_status` — cambiar estado de una orden
 7. `business_dashboard` — resumen de negocio + top ventas
+8. `busiest_day` — día con más órdenes
 
 ### Conectar el MCP a Claude Desktop / VS Code
 
