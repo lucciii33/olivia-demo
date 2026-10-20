@@ -78,6 +78,7 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 26 | GET    | `/stats/stock-by-unit`                | Stock agrupado por unidad de medida (con total) |
 | 27 | GET    | `/stats/dead-stock`                   | Productos que nunca se vendieron y su costo |
 | 28 | GET    | `/stats/top-customers`                | Cuánto compró cada cliente, de mayor a menor |
+| 30 | GET    | `/stats/average-order-value`          | Ticket promedio total y por mes |
 
 ## Las 14 MCP tools
 

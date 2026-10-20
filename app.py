@@ -839,6 +839,43 @@ def stats_top_customers():
         conn.close()
 
 
+# 30. Average order value
+@app.get("/stats/average-order-value", tags=["stats"], dependencies=[Depends(require_auth)])
+def stats_average_order_value():
+    conn = get_conn()
+    try:
+        # Cancelled orders are left out, like every other revenue figure.
+        rows = conn.execute(
+            """SELECT strftime('%Y-%m', created_at) AS month,
+                      COUNT(*) AS orders,
+                      SUM(total) AS revenue
+               FROM orders
+               WHERE status != 'cancelled'
+               GROUP BY month
+               ORDER BY month ASC"""
+        ).fetchall()
+        months = [
+            {
+                "month": r["month"],
+                "orders": r["orders"],
+                "revenue": round(r["revenue"], 2),
+                "average_order_value": round(r["revenue"] / r["orders"], 2),
+            }
+            for r in rows
+        ]
+        orders = sum(m["orders"] for m in months)
+        revenue = sum(r["revenue"] for r in rows)
+        return {
+            "orders": orders,
+            "revenue": round(revenue, 2),
+            "average_order_value": round(revenue / orders, 2) if orders else 0.0,
+            "currency": "USD",
+            "months": months,
+        }
+    finally:
+        conn.close()
+
+
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
