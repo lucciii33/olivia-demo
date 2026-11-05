@@ -54,7 +54,7 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 1  | GET    | `/health`                             | Health check (público) |
 | 2  | POST   | `/products`                           | Crear producto |
 | 3  | GET    | `/products`                           | Listar / buscar productos |
-| 4  | GET    | `/products/low-stock`                 | Productos con stock bajo |
+| 4  | GET    | `/products/low-stock`                 | Productos con stock bajo y cuántas unidades faltan (`shortfall`) |
 | 5  | GET    | `/products/{id}`                      | Ver un producto |
 | 6  | PUT    | `/products/{id}`                      | Actualizar producto (devuelve `updated_fields`) |
 | 7  | DELETE | `/products/{id}`                      | Eliminar producto |
@@ -64,7 +64,7 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 11 | GET    | `/orders/{id}`                        | Ver orden con ítems (`?include_items=false` los omite) |
 | 12 | PATCH  | `/orders/{id}/status`                 | Cambiar estado (cancelar repone stock) |
 | 14 | GET    | `/stats/overview`                     | Métricas: inventario, ventas, stock bajo |
-| 15 | GET    | `/stats/top-products`                 | Productos más vendidos |
+| 15 | GET    | `/stats/top-products`                 | Productos más vendidos (`sort_by` por unidades o ingresos, % de ventas) |
 | 16 | GET    | `/orders/search`                      | Buscar órdenes por fecha, cliente o monto |
 | 17 | GET    | `/products/{id}/orders`               | Historial de ventas de un producto |
 | 18 | GET    | `/stats/sales-by-month`               | Ventas por mes (filtro opcional por año) y mejor mes |

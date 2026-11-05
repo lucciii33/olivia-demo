@@ -174,7 +174,14 @@ def low_stock_products():
         rows = conn.execute(
             "SELECT * FROM products WHERE quantity <= minimum_stock ORDER BY quantity ASC"
         ).fetchall()
-        return {"count": len(rows), "items": [_product_dict(r) for r in rows]}
+        # shortfall: units missing to get back up to minimum_stock (0 when exactly at it).
+        items = [{**_product_dict(r), "shortfall": r["minimum_stock"] - r["quantity"]}
+                 for r in rows]
+        return {
+            "count": len(items),
+            "total_shortfall": sum(i["shortfall"] for i in items),
+            "items": items,
+        }
     finally:
         conn.close()
 
@@ -615,23 +622,51 @@ def stats_overview():
 
 # 15. Top-selling products
 @app.get("/stats/top-products", tags=["stats"], dependencies=[Depends(require_auth)])
-def stats_top_products(limit: int = 5):
+def stats_top_products(
+    limit: int = Query(5, ge=1, le=50, description="How many products to return"),
+    sort_by: str = Query("units_sold", pattern="^(units_sold|revenue)$",
+                         description="units_sold | revenue"),
+):
     conn = get_conn()
     try:
-        rows = conn.execute(
-            """SELECT p.id, p.name, p.sku,
-                      SUM(oi.quantity) AS units_sold,
-                      SUM(oi.subtotal) AS revenue
+        # Cancelled orders are left out, like every other revenue figure.
+        total_revenue = conn.execute(
+            """SELECT COALESCE(SUM(oi.subtotal), 0) AS v
                FROM order_items oi
-               JOIN products p ON p.id = oi.product_id
                JOIN orders o ON o.id = oi.order_id
-               WHERE o.status != 'cancelled'
-               GROUP BY p.id
-               ORDER BY units_sold DESC
-               LIMIT ?""",
+               WHERE o.status != 'cancelled'"""
+        ).fetchone()["v"]
+        # sort_by is validated above, so it is safe to put in the ORDER BY.
+        rows = conn.execute(
+            f"""SELECT p.id, p.name, p.sku,
+                       COUNT(DISTINCT o.id) AS orders,
+                       SUM(oi.quantity) AS units_sold,
+                       SUM(oi.subtotal) AS revenue
+                FROM order_items oi
+                JOIN products p ON p.id = oi.product_id
+                JOIN orders o ON o.id = oi.order_id
+                WHERE o.status != 'cancelled'
+                GROUP BY p.id
+                ORDER BY {sort_by} DESC, p.name ASC
+                LIMIT ?""",
             (limit,),
         ).fetchall()
-        return {"count": len(rows), "items": [dict(r) for r in rows]}
+        items = [
+            {
+                **dict(r),
+                "revenue": round(r["revenue"], 2),
+                # Share of all non-cancelled sales, as a percentage.
+                "revenue_share": round(r["revenue"] / total_revenue * 100, 2),
+            }
+            for r in rows
+        ]
+        return {
+            "count": len(items),
+            "sort_by": sort_by,
+            "total_revenue": round(total_revenue, 2),
+            "currency": "USD",
+            "items": items,
+        }
     finally:
         conn.close()
 
