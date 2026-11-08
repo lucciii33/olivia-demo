@@ -81,6 +81,10 @@ class OrderIn(BaseModel):
     notes: Optional[str] = None
 
 
+class OrderItemsIn(BaseModel):
+    items: list[OrderItemIn] = Field(..., min_length=1, max_length=50)
+
+
 class StatusIn(BaseModel):
     status: str = Field(..., description="pending | accepted | cancelled")
 
@@ -587,6 +591,93 @@ def update_order_status(order_id: int, body: StatusIn):
                      (body.status, ts, order_id))
         conn.commit()
         return _order_with_items(conn, order_id)
+    finally:
+        conn.close()
+
+
+# 31. Replace an order's items (all or nothing)
+@app.put("/orders/{order_id}/items", tags=["orders"], dependencies=[Depends(require_auth)])
+def replace_order_items(order_id: int, body: OrderItemsIn):
+    skus = [i.sku for i in body.items]
+    dupes = sorted({sku for sku in skus if skus.count(sku) > 1})
+    if dupes:
+        raise HTTPException(status_code=400, detail=f"Duplicate SKU '{dupes[0]}'")
+    conn = get_conn()
+    try:
+        order = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if order["status"] == "cancelled":
+            raise HTTPException(status_code=409, detail="Cancelled orders cannot be edited")
+
+        # Current lines, keyed by product.
+        current = {
+            r["product_id"]: r
+            for r in conn.execute(
+                """SELECT oi.*, p.sku FROM order_items oi
+                   JOIN products p ON p.id = oi.product_id
+                   WHERE oi.order_id = ?""",
+                (order_id,),
+            ).fetchall()
+        }
+        deducted = bool(order["inventory_deducted"])
+
+        # Validate everything before writing anything.
+        new_lines = []
+        for item in body.items:
+            prod = conn.execute("SELECT * FROM products WHERE sku = ?", (item.sku,)).fetchone()
+            if not prod:
+                raise HTTPException(status_code=400, detail=f"Unknown SKU '{item.sku}'")
+            old = current.get(prod["id"])
+            before = old["quantity"] if old else 0
+            # Stock only moves for orders that still hold it.
+            stock_delta = (before - item.quantity) if deducted else 0
+            if -stock_delta > prod["quantity"]:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Not enough stock for {item.sku}: have {prod['quantity']}, "
+                           f"need {-stock_delta}",
+                )
+            # Lines already in the order keep the price they were sold at.
+            unit_price = old["unit_price"] if old else prod["sale_price"]
+            new_lines.append((prod, item.quantity, unit_price, before, stock_delta))
+
+        kept = {prod["id"] for prod, *_ in new_lines}
+        removed = [r for pid, r in current.items() if pid not in kept]
+
+        ts = now_iso()
+        changes = []
+        conn.execute("DELETE FROM order_items WHERE order_id = ?", (order_id,))
+        total = 0.0
+        for prod, qty, unit_price, before, stock_delta in new_lines:
+            subtotal = round(unit_price * qty, 2)
+            total += subtotal
+            conn.execute(
+                """INSERT INTO order_items
+                (order_id, product_id, product_name, quantity, unit_price, subtotal)
+                VALUES (?,?,?,?,?,?)""",
+                (order_id, prod["id"], prod["name"], qty, unit_price, subtotal),
+            )
+            if stock_delta:
+                conn.execute(
+                    "UPDATE products SET quantity = quantity + ?, updated_at = ? WHERE id = ?",
+                    (stock_delta, ts, prod["id"]))
+            if qty != before:
+                changes.append({"sku": prod["sku"], "before": before, "after": qty,
+                                "stock_delta": stock_delta})
+        for r in removed:
+            stock_delta = r["quantity"] if deducted else 0
+            if stock_delta:
+                conn.execute(
+                    "UPDATE products SET quantity = quantity + ?, updated_at = ? WHERE id = ?",
+                    (stock_delta, ts, r["product_id"]))
+            changes.append({"sku": r["sku"], "before": r["quantity"], "after": 0,
+                            "stock_delta": stock_delta})
+
+        conn.execute("UPDATE orders SET total = ?, updated_at = ? WHERE id = ?",
+                     (round(total, 2), ts, order_id))
+        conn.commit()
+        return {**_order_with_items(conn, order_id), "changes": changes}
     finally:
         conn.close()
 
