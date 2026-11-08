@@ -132,16 +132,3 @@ def test_cancelled_order_cannot_be_edited(client, api_key_headers):
     res = _put(client, api_key_headers, _seed_items())
     assert res.status_code == 409
     assert res.json()["detail"] == "Cancelled orders cannot be edited"
-
-
-def test_order_without_held_stock_moves_no_stock(client, api_key_headers):
-    # Cancelled then reopened: its stock was already returned and is not taken again.
-    client.patch(f"/orders/{ORDER_ID}/status", headers=api_key_headers,
-                 json={"status": "cancelled"})
-    client.patch(f"/orders/{ORDER_ID}/status", headers=api_key_headers,
-                 json={"status": "pending"})
-    body = _put(client, api_key_headers, [{"sku": "SAIL-MAIN-052", "quantity": 50}]).json()
-    assert body["total"] == 36000.0
-    assert all(c["stock_delta"] == 0 for c in body["changes"])
-    assert _stock(client, api_key_headers, "SAIL-MAIN-052") == 12
-

@@ -85,6 +85,11 @@ class OrderItemsIn(BaseModel):
     items: list[OrderItemIn] = Field(..., min_length=1, max_length=50)
 
 
+class DuplicateIn(BaseModel):
+    customer_name: Optional[str] = None
+    notes: Optional[str] = None
+
+
 class StatusIn(BaseModel):
     status: str = Field(..., description="pending | accepted | cancelled")
 
@@ -339,6 +344,16 @@ def delete_product(product_id: int):
         row = conn.execute("SELECT sku FROM products WHERE id = ?", (product_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Product not found")
+        # Order lines point at the product, so it cannot go while any order has it.
+        in_orders = conn.execute(
+            "SELECT COUNT(DISTINCT order_id) AS c FROM order_items WHERE product_id = ?",
+            (product_id,),
+        ).fetchone()["c"]
+        if in_orders:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Product {row['sku']} is in {in_orders} order(s) and cannot be deleted",
+            )
         conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
         conn.commit()
         return {"deleted": True, "id": product_id, "sku": row["sku"]}
@@ -452,12 +467,21 @@ def create_order(body: OrderIn):
 
 
 # 10. List orders
+_ORDER_SORTS = {
+    "newest": "created_at DESC, id DESC",
+    "oldest": "created_at ASC, id ASC",
+    "total_desc": "total DESC, id ASC",
+    "total_asc": "total ASC, id ASC",
+}
+
+
 @app.get("/orders", tags=["orders"], dependencies=[Depends(require_auth)])
 def list_orders(
-    status: Optional[str] = None,
+    status: Optional[str] = Query(None, pattern="^(pending|accepted|cancelled)$"),
     customer: Optional[str] = Query(None, description="Partial match on customer name"),
-    limit: int = 50,
-    offset: int = 0,
+    sort: str = Query("newest", pattern="^(newest|oldest|total_desc|total_asc)$"),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
 ):
     conn = get_conn()
     try:
@@ -472,10 +496,17 @@ def list_orders(
         # count is the size of this page; total_count ignores limit and offset.
         total_count = conn.execute("SELECT COUNT(*) AS c FROM orders" + where, args).fetchone()["c"]
         rows = conn.execute(
-            "SELECT * FROM orders" + where + " ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            "SELECT * FROM orders" + where
+            + f" ORDER BY {_ORDER_SORTS[sort]} LIMIT ? OFFSET ?",
             [*args, limit, offset],
         ).fetchall()
-        return {"count": len(rows), "total_count": total_count, "items": [dict(r) for r in rows]}
+        return {
+            "count": len(rows),
+            "total_count": total_count,
+            "has_more": offset + len(rows) < total_count,
+            "sort": sort,
+            "items": [dict(r) for r in rows],
+        }
     finally:
         conn.close()
 
@@ -579,6 +610,10 @@ def update_order_status(order_id: int, body: StatusIn):
         order = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
+        # Cancelling is final: its stock is already back on the shelf.
+        if order["status"] == "cancelled":
+            raise HTTPException(status_code=409,
+                                detail="Cancelled orders cannot change status")
         ts = now_iso()
         # If cancelling an order whose stock was deducted, restock it.
         if body.status == "cancelled" and order["inventory_deducted"]:
@@ -590,7 +625,7 @@ def update_order_status(order_id: int, body: StatusIn):
         conn.execute("UPDATE orders SET status = ?, updated_at = ? WHERE id = ?",
                      (body.status, ts, order_id))
         conn.commit()
-        return _order_with_items(conn, order_id)
+        return {**_order_with_items(conn, order_id), "previous_status": order["status"]}
     finally:
         conn.close()
 
@@ -620,7 +655,6 @@ def replace_order_items(order_id: int, body: OrderItemsIn):
                 (order_id,),
             ).fetchall()
         }
-        deducted = bool(order["inventory_deducted"])
 
         # Validate everything before writing anything.
         new_lines = []
@@ -630,8 +664,7 @@ def replace_order_items(order_id: int, body: OrderItemsIn):
                 raise HTTPException(status_code=400, detail=f"Unknown SKU '{item.sku}'")
             old = current.get(prod["id"])
             before = old["quantity"] if old else 0
-            # Stock only moves for orders that still hold it.
-            stock_delta = (before - item.quantity) if deducted else 0
+            stock_delta = before - item.quantity
             if -stock_delta > prod["quantity"]:
                 raise HTTPException(
                     status_code=409,
@@ -666,11 +699,10 @@ def replace_order_items(order_id: int, body: OrderItemsIn):
                 changes.append({"sku": prod["sku"], "before": before, "after": qty,
                                 "stock_delta": stock_delta})
         for r in removed:
-            stock_delta = r["quantity"] if deducted else 0
-            if stock_delta:
-                conn.execute(
-                    "UPDATE products SET quantity = quantity + ?, updated_at = ? WHERE id = ?",
-                    (stock_delta, ts, r["product_id"]))
+            stock_delta = r["quantity"]
+            conn.execute(
+                "UPDATE products SET quantity = quantity + ?, updated_at = ? WHERE id = ?",
+                (stock_delta, ts, r["product_id"]))
             changes.append({"sku": r["sku"], "before": r["quantity"], "after": 0,
                             "stock_delta": stock_delta})
 
@@ -680,6 +712,35 @@ def replace_order_items(order_id: int, body: OrderItemsIn):
         return {**_order_with_items(conn, order_id), "changes": changes}
     finally:
         conn.close()
+
+
+# 32. Duplicate an order as a new one (re-order)
+@app.post("/orders/{order_id}/duplicate", tags=["orders"], status_code=201,
+          dependencies=[Depends(require_auth)])
+def duplicate_order(order_id: int, body: Optional[DuplicateIn] = None):
+    body = body or DuplicateIn()
+    conn = get_conn()
+    try:
+        source = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if not source:
+            raise HTTPException(status_code=404, detail="Order not found")
+        lines = conn.execute(
+            """SELECT p.sku, oi.quantity FROM order_items oi
+               JOIN products p ON p.id = oi.product_id
+               WHERE oi.order_id = ? ORDER BY oi.id""",
+            (order_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    # Same lines and customer, but today's prices; create_order checks the stock.
+    new_order = create_order(OrderIn(
+        customer_name=body.customer_name or source["customer_name"],
+        customer_email=source["customer_email"],
+        customer_phone=source["customer_phone"],
+        items=[OrderItemIn(sku=l["sku"], quantity=l["quantity"]) for l in lines],
+        notes=body.notes if body.notes is not None else source["notes"],
+    ))
+    return {**new_order, "duplicated_from": source["order_number"]}
 
 
 # --------------------------------------------------------------------------- #

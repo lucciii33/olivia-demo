@@ -46,7 +46,7 @@ def test_total_count_respects_status_filter(client, api_key_headers):
 
 def test_existing_fields_are_unchanged(client, api_key_headers):
     body = _orders(client, api_key_headers)
-    assert set(body) == {"count", "total_count", "items"}
+    assert set(body) == {"count", "total_count", "has_more", "sort", "items"}
     assert {"id", "order_number", "customer_name", "status", "total"} <= body["items"][0].keys()
 
 
@@ -84,3 +84,49 @@ def test_customer_combines_with_status(client, api_key_headers):
                  json={"status": "cancelled"})
     assert _orders(client, api_key_headers, "?customer=astillero&status=cancelled")["total_count"] == 1
     assert _orders(client, api_key_headers, "?customer=astillero&status=accepted")["total_count"] == 0
+
+
+# --- sort, has_more and parameter validation ---
+
+def _totals(body):
+    return [o["total"] for o in body["items"]]
+
+
+def test_default_sort_is_newest(client, api_key_headers):
+    newer = _new_order(client, api_key_headers, "Cliente Nuevo")
+    body = _orders(client, api_key_headers)
+    assert body["sort"] == "newest"
+    assert body["items"][0]["id"] == newer["id"]
+
+
+def test_oldest_is_the_reverse_of_newest(client, api_key_headers):
+    _new_order(client, api_key_headers, "Cliente Nuevo")
+    newest = [o["id"] for o in _orders(client, api_key_headers, "?sort=newest")["items"]]
+    oldest = [o["id"] for o in _orders(client, api_key_headers, "?sort=oldest")["items"]]
+    assert oldest == newest[::-1]
+
+
+def test_sort_by_total(client, api_key_headers):
+    _new_order(client, api_key_headers, "Cliente Nuevo")  # 49.0
+    assert _totals(_orders(client, api_key_headers, "?sort=total_desc")) == [1515.0, 834.0, 49.0]
+    assert _totals(_orders(client, api_key_headers, "?sort=total_asc")) == [49.0, 834.0, 1515.0]
+
+
+def test_sort_applies_before_paging(client, api_key_headers):
+    _new_order(client, api_key_headers, "Cliente Nuevo")
+    body = _orders(client, api_key_headers, "?sort=total_desc&limit=1&offset=1")
+    assert _totals(body) == [834.0]
+
+
+def test_has_more(client, api_key_headers):
+    assert _orders(client, api_key_headers, "?limit=1")["has_more"] is True
+    assert _orders(client, api_key_headers, "?limit=1&offset=1")["has_more"] is False
+    assert _orders(client, api_key_headers, "?limit=2")["has_more"] is False
+    assert _orders(client, api_key_headers, "?offset=5")["has_more"] is False
+
+
+def test_invalid_parameters_are_rejected(client, api_key_headers):
+    for query in ("?sort=name", "?status=shipped", "?limit=0", "?limit=101", "?offset=-1"):
+        res = client.get(f"/orders{query}", headers=api_key_headers)
+        assert res.status_code == 422, query
+    assert client.get("/orders?limit=100", headers=api_key_headers).status_code == 200
