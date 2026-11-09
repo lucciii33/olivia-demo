@@ -56,6 +56,8 @@ class ProductUpdate(BaseModel):
 class StockAdjust(BaseModel):
     delta: int = Field(..., description="Positive to add stock, negative to remove")
     reason: Optional[str] = None
+    # Optional lock: the quantity the caller last saw. A different current stock is a 409.
+    expected_quantity: Optional[int] = Field(None, ge=0)
 
 
 class BulkAdjustItem(BaseModel):
@@ -83,6 +85,8 @@ class OrderIn(BaseModel):
 
 class OrderItemsIn(BaseModel):
     items: list[OrderItemIn] = Field(..., min_length=1, max_length=50)
+    # Optional lock: the total the caller last saw. A different current total is a 409.
+    expected_total: Optional[float] = Field(None, ge=0)
 
 
 class StatusIn(BaseModel):
@@ -355,7 +359,11 @@ def delete_product(product_id: int):
 # 8. Adjust stock
 @app.post("/products/{product_id}/adjust-stock", tags=["products"],
           dependencies=[Depends(require_auth)])
-def adjust_stock(product_id: int, body: StockAdjust):
+def adjust_stock(
+    product_id: int,
+    body: StockAdjust,
+    dry_run: bool = Query(False, description="Validate and preview without saving"),
+):
     conn = get_conn()
     try:
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
@@ -363,16 +371,26 @@ def adjust_stock(product_id: int, body: StockAdjust):
             raise HTTPException(status_code=404, detail="Product not found")
         if body.delta == 0:
             raise HTTPException(status_code=422, detail="delta cannot be 0")
+        if body.expected_quantity is not None and body.expected_quantity != row["quantity"]:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Stock changed: expected {body.expected_quantity}, current {row['quantity']}",
+            )
         new_qty = row["quantity"] + body.delta
         if new_qty < 0:
             raise HTTPException(status_code=409,
                                 detail=f"Not enough stock: have {row['quantity']}, delta {body.delta}")
-        conn.execute("UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?",
-                     (new_qty, now_iso(), product_id))
-        conn.commit()
-        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-        return {"product": _product_dict(row), "previous_quantity": new_qty - body.delta,
-                "applied_delta": body.delta, "reason": body.reason}
+        if dry_run:
+            # The product as it would be; nothing is written.
+            product = _product_dict({**dict(row), "quantity": new_qty})
+        else:
+            conn.execute("UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?",
+                         (new_qty, now_iso(), product_id))
+            conn.commit()
+            product = _product_dict(
+                conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone())
+        return {"product": product, "previous_quantity": row["quantity"],
+                "applied_delta": body.delta, "reason": body.reason, "dry_run": dry_run}
     finally:
         conn.close()
 
@@ -639,7 +657,11 @@ def update_order_status(order_id: int, body: StatusIn):
 
 # 31. Replace an order's items (all or nothing)
 @app.put("/orders/{order_id}/items", tags=["orders"], dependencies=[Depends(require_auth)])
-def replace_order_items(order_id: int, body: OrderItemsIn):
+def replace_order_items(
+    order_id: int,
+    body: OrderItemsIn,
+    dry_run: bool = Query(False, description="Validate and preview without saving"),
+):
     skus = [i.sku for i in body.items]
     dupes = sorted({sku for sku in skus if skus.count(sku) > 1})
     if dupes:
@@ -651,6 +673,12 @@ def replace_order_items(order_id: int, body: OrderItemsIn):
             raise HTTPException(status_code=404, detail="Order not found")
         if order["status"] == "cancelled":
             raise HTTPException(status_code=409, detail="Cancelled orders cannot be edited")
+        if body.expected_total is not None and round(body.expected_total, 2) != order["total"]:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Order changed: expected total {round(body.expected_total, 2)}, "
+                       f"current {order['total']}",
+            )
 
         # Current lines, keyed by product.
         current = {
@@ -718,8 +746,13 @@ def replace_order_items(order_id: int, body: OrderItemsIn):
 
         conn.execute("UPDATE orders SET total = ?, updated_at = ? WHERE id = ?",
                      (round(total, 2), ts, order_id))
-        conn.commit()
-        return {**_order_with_items(conn, order_id), "changes": changes}
+        # Same connection, so the preview sees the uncommitted writes.
+        result = {**_order_with_items(conn, order_id), "changes": changes, "dry_run": dry_run}
+        if dry_run:
+            conn.rollback()
+        else:
+            conn.commit()
+        return result
     finally:
         conn.close()
 
