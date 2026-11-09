@@ -1,6 +1,8 @@
 """PUT /products/{product_id} — the response now lists the fields the request set."""
 
 PRODUCT_ID = 1  # Mainsail Dacron 5.2m
+# Fields GET /products/{id} adds that PUT does not return.
+GET_ONLY = {"stock_cost_value", "stock_sale_value", "units_to_minimum"}
 
 
 def _put(client, headers, body, product_id=PRODUCT_ID):
@@ -30,6 +32,7 @@ def test_null_values_are_not_listed(client, api_key_headers):
 
 def test_empty_body_changes_nothing(client, api_key_headers):
     before = client.get(f"/products/{PRODUCT_ID}", headers=api_key_headers).json()
+    before = {k: v for k, v in before.items() if k not in GET_ONLY}
     body = _put(client, api_key_headers, {}).json()
     assert body["updated_fields"] == []
     assert {k: v for k, v in body.items() if k != "updated_fields"} == before
@@ -38,7 +41,7 @@ def test_empty_body_changes_nothing(client, api_key_headers):
 def test_product_fields_are_unchanged(client, api_key_headers):
     by_id = client.get(f"/products/{PRODUCT_ID}", headers=api_key_headers).json()
     body = _put(client, api_key_headers, {"minimum_stock": 4}).json()
-    assert set(body) == set(by_id) | {"updated_fields"}
+    assert set(body) == (set(by_id) - GET_ONLY) | {"updated_fields"}
 
 
 def test_unknown_product_is_404(client, api_key_headers):

@@ -303,7 +303,13 @@ def get_product(product_id: int):
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Product not found")
-        return _product_dict(row)
+        return {
+            **_product_dict(row),
+            "stock_cost_value": round(row["quantity"] * row["cost_price"], 2),
+            "stock_sale_value": round(row["quantity"] * row["sale_price"], 2),
+            # Units missing to get back up to minimum_stock; 0 when at or above it.
+            "units_to_minimum": max(0, row["minimum_stock"] - row["quantity"]),
+        }
     finally:
         conn.close()
 
@@ -590,6 +596,9 @@ def get_order(
         # builds the POST /orders and PATCH /orders/{id}/status responses.
         order = _order_with_items(conn, order_id)
         order["items_count"] = len(order["items"])
+        order["units_count"] = sum(i["quantity"] for i in order["items"])
+        # Only cancelled orders are locked (no status change, no item edits).
+        order["editable"] = order["status"] != "cancelled"
         order.pop("inventory_deducted")
         if not include_items:
             order.pop("items")
