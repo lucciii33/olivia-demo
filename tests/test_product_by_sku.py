@@ -11,7 +11,9 @@ def test_same_body_as_lookup_by_id(client, api_key_headers):
     by_sku = client.get(f"/products/by-sku/{MAINSAIL_SKU}", headers=api_key_headers)
     by_id = client.get(f"/products/{MAINSAIL_ID}", headers=api_key_headers)
     assert by_sku.status_code == 200
-    assert by_sku.json() == by_id.json()
+    # GET /products/{id} adds stock values on top of the product itself.
+    only_by_id = {"stock_cost_value", "stock_sale_value", "units_to_minimum"}
+    assert by_sku.json() == {k: v for k, v in by_id.json().items() if k not in only_by_id}
     assert by_sku.json()["name"] == "Mainsail Dacron 5.2m"
 
 
