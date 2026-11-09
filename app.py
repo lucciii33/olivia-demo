@@ -371,6 +371,32 @@ def adjust_stock(product_id: int, body: StockAdjust):
         conn.close()
 
 
+# 33. Can this many units be sold right now?
+@app.get("/products/{product_id}/availability", tags=["products"],
+         dependencies=[Depends(require_auth)])
+def product_availability(product_id: int, quantity: int = Query(..., ge=1, le=10000)):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Product not found")
+        left = row["quantity"] - quantity
+        return {
+            "product_id": row["id"],
+            "sku": row["sku"],
+            "requested": quantity,
+            "available": row["quantity"],
+            "can_fulfill": left >= 0,
+            "shortfall": max(0, -left),
+            # Only meaningful when the sale can happen.
+            "low_stock_after": left <= row["minimum_stock"] if left >= 0 else None,
+            "line_total": round(row["sale_price"] * quantity, 2),
+            "currency": row["currency"],
+        }
+    finally:
+        conn.close()
+
+
 # 17. Product order history
 @app.get("/products/{product_id}/orders", tags=["products"],
          dependencies=[Depends(require_auth)])
@@ -582,6 +608,10 @@ def update_order_status(order_id: int, body: StatusIn):
         order = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
+        # Cancelling is final: its stock is already back on the shelf.
+        if order["status"] == "cancelled":
+            raise HTTPException(status_code=409,
+                                detail="Cancelled orders cannot change status")
         ts = now_iso()
         # If cancelling an order whose stock was deducted, restock it.
         if body.status == "cancelled" and order["inventory_deducted"]:
@@ -593,7 +623,7 @@ def update_order_status(order_id: int, body: StatusIn):
         conn.execute("UPDATE orders SET status = ?, updated_at = ? WHERE id = ?",
                      (body.status, ts, order_id))
         conn.commit()
-        return _order_with_items(conn, order_id)
+        return {**_order_with_items(conn, order_id), "previous_status": order["status"]}
     finally:
         conn.close()
 

@@ -62,9 +62,10 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 9  | POST   | `/orders`                             | Crear orden (descuenta stock) |
 | 10 | GET    | `/orders`                             | Listar órdenes |
 | 11 | GET    | `/orders/{id}`                        | Ver orden con ítems (`?include_items=false` los omite) |
-| 12 | PATCH  | `/orders/{id}/status`                 | Cambiar estado (cancelar repone stock) |
+| 12 | PATCH  | `/orders/{id}/status`                 | Cambiar estado (cancelar es definitivo; devuelve `previous_status`) |
 | 31 | PUT    | `/orders/{id}/items`                  | Reemplazar los ítems de una orden (ajusta stock y total, todo o nada) |
 | 32 | GET    | `/orders/{id}/invoice`                | Factura de una orden con descuento e impuesto |
+| 33 | GET    | `/products/{id}/availability`         | ¿Se pueden vender N unidades ahora? (`?quantity=N`) |
 | 14 | GET    | `/stats/overview`                     | Métricas: inventario, ventas, stock bajo |
 | 15 | GET    | `/stats/top-products`                 | Productos más vendidos (`sort_by` por unidades o ingresos, % de ventas) |
 | 16 | GET    | `/orders/search`                      | Buscar órdenes por fecha, cliente o monto |
