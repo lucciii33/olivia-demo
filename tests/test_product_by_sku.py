@@ -26,9 +26,14 @@ def test_unknown_sku_is_404(client, api_key_headers):
     assert "NO-EXISTE" in res.json()["detail"]
 
 
-def test_match_is_exact(client, api_key_headers):
-    for partial in ("SAIL-MAIN", "sail-main-052"):
-        assert client.get(f"/products/by-sku/{partial}", headers=api_key_headers).status_code == 404
+def test_partial_sku_is_not_a_match(client, api_key_headers):
+    assert client.get("/products/by-sku/SAIL-MAIN", headers=api_key_headers).status_code == 404
+
+
+def test_case_does_not_matter(client, api_key_headers):
+    for sku in ("sail-main-052", "Sail-Main-052"):
+        body = client.get(f"/products/by-sku/{sku}", headers=api_key_headers).json()
+        assert body["id"] == MAINSAIL_ID
 
 
 def test_new_products_are_found(client, api_key_headers):

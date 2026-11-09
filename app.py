@@ -30,31 +30,34 @@ def _startup():
 # --------------------------------------------------------------------------- #
 # Schemas
 # --------------------------------------------------------------------------- #
+_CURRENCY = r"^[A-Z]{3}$"
+
+
 class ProductIn(BaseModel):
-    name: str
-    sku: str
+    name: str = Field(..., min_length=1)
+    sku: str = Field(..., min_length=1, max_length=32)
     description: Optional[str] = None
-    quantity: int = 0
-    minimum_stock: int = 0
+    quantity: int = Field(0, ge=0)
+    minimum_stock: int = Field(0, ge=0)
     unit: str = "unit"
-    cost_price: float = 0
-    sale_price: float = 0
-    currency: str = "USD"
+    cost_price: float = Field(0, ge=0)
+    sale_price: float = Field(0, ge=0)
+    currency: str = Field("USD", pattern=_CURRENCY)
 
 
 class ProductUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1)
     description: Optional[str] = None
-    quantity: Optional[int] = None
-    minimum_stock: Optional[int] = None
+    quantity: Optional[int] = Field(None, ge=0)
+    minimum_stock: Optional[int] = Field(None, ge=0)
     unit: Optional[str] = None
-    cost_price: Optional[float] = None
-    sale_price: Optional[float] = None
-    currency: Optional[str] = None
+    cost_price: Optional[float] = Field(None, ge=0)
+    sale_price: Optional[float] = Field(None, ge=0)
+    currency: Optional[str] = Field(None, pattern=_CURRENCY)
 
 
 class StockAdjust(BaseModel):
-    delta: int = Field(..., description="Positive to add stock, negative to remove")
+    delta: int = Field(..., description="Positive to add stock, negative to remove; never 0")
     reason: Optional[str] = None
 
 
@@ -126,10 +129,18 @@ def health():
 # Products
 # --------------------------------------------------------------------------- #
 # 2. Create product
-@app.post("/products", tags=["products"], dependencies=[Depends(require_auth)])
+@app.post("/products", tags=["products"], status_code=201,
+          dependencies=[Depends(require_auth)])
 def create_product(body: ProductIn):
+    # SKUs are stored trimmed and upper-case, so "sail-x " and "SAIL-X" are the same SKU.
+    sku = body.sku.strip().upper()
+    name = body.name.strip()
+    if not sku or not name:
+        raise HTTPException(status_code=422, detail="name and sku cannot be blank")
     conn = get_conn()
     try:
+        if conn.execute("SELECT 1 FROM products WHERE upper(sku) = ?", (sku,)).fetchone():
+            raise HTTPException(status_code=409, detail=f"SKU '{sku}' already exists")
         ts = now_iso()
         try:
             cur = conn.execute(
@@ -137,12 +148,12 @@ def create_product(body: ProductIn):
                 (name, sku, description, quantity, minimum_stock, unit,
                  cost_price, sale_price, currency, created_at, updated_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                (body.name, body.sku, body.description, body.quantity,
+                (name, sku, body.description, body.quantity,
                  body.minimum_stock, body.unit, body.cost_price,
                  body.sale_price, body.currency, ts, ts),
             )
         except Exception:
-            raise HTTPException(status_code=409, detail=f"SKU '{body.sku}' already exists")
+            raise HTTPException(status_code=409, detail=f"SKU '{sku}' already exists")
         conn.commit()
         row = conn.execute("SELECT * FROM products WHERE id = ?", (cur.lastrowid,)).fetchone()
         return _product_dict(row)
@@ -151,26 +162,47 @@ def create_product(body: ProductIn):
 
 
 # 3. List products (with search + low-stock filter)
+# Ties fall back to name, then id, so pages never overlap.
+_PRODUCT_SORTS = {
+    "name": "name ASC, id ASC",
+    "price_asc": "sale_price ASC, name ASC, id ASC",
+    "price_desc": "sale_price DESC, name ASC, id ASC",
+    "stock_asc": "quantity ASC, name ASC, id ASC",
+}
+
+
 @app.get("/products", tags=["products"], dependencies=[Depends(require_auth)])
 def list_products(
     q: Optional[str] = Query(None, description="Search name or SKU"),
     low_stock: bool = False,
-    limit: int = 50,
-    offset: int = 0,
+    sort: str = Query("name", pattern="^(name|price_asc|price_desc|stock_asc)$"),
+    limit: int = Query(50, ge=1),
+    offset: int = Query(0, ge=0),
 ):
     conn = get_conn()
     try:
-        sql = "SELECT * FROM products WHERE 1=1"
+        where = " WHERE 1=1"
         args: list = []
         if q:
-            sql += " AND (name LIKE ? OR sku LIKE ?)"
+            where += " AND (name LIKE ? OR sku LIKE ?)"
             args += [f"%{q}%", f"%{q}%"]
         if low_stock:
-            sql += " AND quantity <= minimum_stock"
-        sql += " ORDER BY name LIMIT ? OFFSET ?"
-        args += [limit, offset]
-        rows = conn.execute(sql, args).fetchall()
-        return {"count": len(rows), "items": [_product_dict(r) for r in rows]}
+            where += " AND quantity <= minimum_stock"
+        # count is the size of this page; total_count ignores limit and offset.
+        total_count = conn.execute("SELECT COUNT(*) AS c FROM products" + where,
+                                   args).fetchone()["c"]
+        order = _PRODUCT_SORTS[sort]
+        rows = conn.execute(
+            f"SELECT * FROM products{where} ORDER BY {order} LIMIT ? OFFSET ?",
+            [*args, limit, offset],
+        ).fetchall()
+        return {
+            "count": len(rows),
+            "total_count": total_count,
+            "has_more": offset + len(rows) < total_count,
+            "sort": sort,
+            "items": [_product_dict(r) for r in rows],
+        }
     finally:
         conn.close()
 
@@ -292,7 +324,9 @@ def reorder_suggestions():
 def get_product_by_sku(sku: str):
     conn = get_conn()
     try:
-        row = conn.execute("SELECT * FROM products WHERE sku = ?", (sku,)).fetchone()
+        # Case and surrounding spaces do not matter, as when the product was created.
+        row = conn.execute("SELECT * FROM products WHERE upper(sku) = ?",
+                           (sku.strip().upper(),)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail=f"No product with SKU '{sku}'")
         return _product_dict(row)
@@ -370,15 +404,44 @@ def adjust_stock(product_id: int, body: StockAdjust):
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Product not found")
+        if body.delta == 0:
+            raise HTTPException(status_code=422, detail="delta cannot be 0")
         new_qty = row["quantity"] + body.delta
         if new_qty < 0:
-            raise HTTPException(status_code=400,
-                                detail=f"Insufficient stock: have {row['quantity']}, delta {body.delta}")
+            raise HTTPException(status_code=409,
+                                detail=f"Not enough stock: have {row['quantity']}, delta {body.delta}")
         conn.execute("UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?",
                      (new_qty, now_iso(), product_id))
         conn.commit()
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-        return {"product": _product_dict(row), "applied_delta": body.delta, "reason": body.reason}
+        return {"product": _product_dict(row), "previous_quantity": new_qty - body.delta,
+                "applied_delta": body.delta, "reason": body.reason}
+    finally:
+        conn.close()
+
+
+# 33. Can this many units be sold right now?
+@app.get("/products/{product_id}/availability", tags=["products"],
+         dependencies=[Depends(require_auth)])
+def product_availability(product_id: int, quantity: int = Query(..., ge=1, le=10000)):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Product not found")
+        left = row["quantity"] - quantity
+        return {
+            "product_id": row["id"],
+            "sku": row["sku"],
+            "requested": quantity,
+            "available": row["quantity"],
+            "can_fulfill": left >= 0,
+            "shortfall": max(0, -left),
+            # Only meaningful when the sale can happen.
+            "low_stock_after": left <= row["minimum_stock"] if left >= 0 else None,
+            "line_total": round(row["sale_price"] * quantity, 2),
+            "currency": row["currency"],
+        }
     finally:
         conn.close()
 
@@ -741,6 +804,60 @@ def duplicate_order(order_id: int, body: Optional[DuplicateIn] = None):
         notes=body.notes if body.notes is not None else source["notes"],
     ))
     return {**new_order, "duplicated_from": source["order_number"]}
+
+
+# 34. Invoice for an order (tax and discount computed, nothing stored)
+@app.get("/orders/{order_id}/invoice", tags=["orders"], dependencies=[Depends(require_auth)])
+def order_invoice(
+    order_id: int,
+    tax_rate: float = Query(21, ge=0, le=30, description="Tax %, applied after the discount"),
+    discount_percent: float = Query(0, ge=0, le=100, description="Discount % on the subtotal"),
+):
+    conn = get_conn()
+    try:
+        order = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if order["status"] == "cancelled":
+            raise HTTPException(status_code=409, detail="Cancelled orders have no invoice")
+        items = conn.execute(
+            """SELECT p.sku, oi.product_name, oi.quantity, oi.unit_price, oi.subtotal
+               FROM order_items oi JOIN products p ON p.id = oi.product_id
+               WHERE oi.order_id = ? ORDER BY oi.id""",
+            (order_id,),
+        ).fetchall()
+        # Each step is rounded to cents before the next one uses it.
+        subtotal = round(sum(i["subtotal"] for i in items), 2)
+        discount = round(subtotal * discount_percent / 100, 2)
+        taxable = round(subtotal - discount, 2)
+        tax = round(taxable * tax_rate / 100, 2)
+        return {
+            # ORD-2026-0001 -> INV-2026-0001
+            "invoice_number": "INV-" + order["order_number"].split("-", 1)[1],
+            "order_id": order["id"],
+            "order_number": order["order_number"],
+            "issued_on": order["created_at"][:10],
+            "customer": {
+                "name": order["customer_name"],
+                "email": order["customer_email"],
+                "phone": order["customer_phone"],
+            },
+            "lines": [
+                {"sku": i["sku"], "description": i["product_name"], "quantity": i["quantity"],
+                 "unit_price": i["unit_price"], "amount": round(i["subtotal"], 2)}
+                for i in items
+            ],
+            "subtotal": subtotal,
+            "discount_percent": discount_percent,
+            "discount": discount,
+            "taxable_amount": taxable,
+            "tax_rate": tax_rate,
+            "tax": tax,
+            "total": round(taxable + tax, 2),
+            "currency": order["currency"],
+        }
+    finally:
+        conn.close()
 
 
 # --------------------------------------------------------------------------- #

@@ -52,26 +52,28 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | #  | Método | Ruta                                  | Qué hace |
 |----|--------|---------------------------------------|----------|
 | 1  | GET    | `/health`                             | Health check (público) |
-| 2  | POST   | `/products`                           | Crear producto |
-| 3  | GET    | `/products`                           | Listar / buscar productos |
+| 2  | POST   | `/products`                           | Crear producto (201; SKU en mayúsculas, sin negativos) |
+| 3  | GET    | `/products`                           | Listar/buscar productos (`sort`, `total_count`, `has_more`) |
 | 4  | GET    | `/products/low-stock`                 | Productos con stock bajo y cuántas unidades faltan (`shortfall`) |
 | 5  | GET    | `/products/{id}`                      | Ver un producto |
 | 6  | PUT    | `/products/{id}`                      | Actualizar producto (devuelve `updated_fields`) |
 | 7  | DELETE | `/products/{id}`                      | Eliminar producto (409 si está en alguna orden) |
-| 8  | POST   | `/products/{id}/adjust-stock`         | Ajustar stock (+/-) |
+| 8  | POST   | `/products/{id}/adjust-stock`         | Ajustar stock (+/-; 409 si no alcanza, devuelve `previous_quantity`) |
 | 9  | POST   | `/orders`                             | Crear orden (descuenta stock) |
 | 10 | GET    | `/orders`                             | Listar órdenes (`sort`, `has_more`) |
 | 11 | GET    | `/orders/{id}`                        | Ver orden con ítems (`?include_items=false` los omite) |
 | 12 | PATCH  | `/orders/{id}/status`                 | Cambiar estado (cancelar repone stock y es definitivo; devuelve `previous_status`) |
 | 31 | PUT    | `/orders/{id}/items`                  | Reemplazar los ítems de una orden (ajusta stock y total, todo o nada) |
 | 32 | POST   | `/orders/{id}/duplicate`              | Repetir una orden como orden nueva, a precios actuales |
+| 33 | GET    | `/products/{id}/availability`         | ¿Se pueden vender N unidades ahora? (`?quantity=N`) |
+| 34 | GET    | `/orders/{id}/invoice`                | Factura de una orden con descuento e impuesto |
 | 14 | GET    | `/stats/overview`                     | Métricas: inventario, ventas, stock bajo |
 | 15 | GET    | `/stats/top-products`                 | Productos más vendidos (`sort_by` por unidades o ingresos, % de ventas) |
 | 16 | GET    | `/orders/search`                      | Buscar órdenes por fecha, cliente o monto |
 | 17 | GET    | `/products/{id}/orders`               | Historial de ventas de un producto |
 | 18 | GET    | `/stats/sales-by-month`               | Ventas por mes (filtro opcional por año) y mejor mes |
 | 19 | POST   | `/products/bulk-adjust`               | Ajustar stock de varios productos (todo o nada, con `total_delta`) |
-| 20 | GET    | `/products/by-sku/{sku}`              | Ver un producto por SKU |
+| 20 | GET    | `/products/by-sku/{sku}`              | Ver un producto por SKU (sin distinguir mayúsculas) |
 | 21 | GET    | `/stats/orders-by-status`             | Órdenes y monto por estado |
 | 22 | GET    | `/orders/by-number/{order_number}`    | Ver orden por número (ej. `ORD-2026-0001`) |
 | 23 | GET    | `/stats/inventory-value`              | Valor del inventario a costo, a venta y margen |
