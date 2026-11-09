@@ -355,15 +355,18 @@ def adjust_stock(product_id: int, body: StockAdjust):
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Product not found")
+        if body.delta == 0:
+            raise HTTPException(status_code=422, detail="delta cannot be 0")
         new_qty = row["quantity"] + body.delta
         if new_qty < 0:
-            raise HTTPException(status_code=400,
-                                detail=f"Insufficient stock: have {row['quantity']}, delta {body.delta}")
+            raise HTTPException(status_code=409,
+                                detail=f"Not enough stock: have {row['quantity']}, delta {body.delta}")
         conn.execute("UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?",
                      (new_qty, now_iso(), product_id))
         conn.commit()
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-        return {"product": _product_dict(row), "applied_delta": body.delta, "reason": body.reason}
+        return {"product": _product_dict(row), "previous_quantity": new_qty - body.delta,
+                "applied_delta": body.delta, "reason": body.reason}
     finally:
         conn.close()
 
@@ -678,6 +681,55 @@ def replace_order_items(order_id: int, body: OrderItemsIn):
                      (round(total, 2), ts, order_id))
         conn.commit()
         return {**_order_with_items(conn, order_id), "changes": changes}
+    finally:
+        conn.close()
+
+
+# 32. Invoice for an order (tax and discount computed, nothing stored)
+@app.get("/orders/{order_id}/invoice", tags=["orders"], dependencies=[Depends(require_auth)])
+def order_invoice(
+    order_id: int,
+    tax_rate: float = Query(21, ge=0, le=30, description="Tax %, applied after the discount"),
+    discount_percent: float = Query(0, ge=0, le=100, description="Discount % on the subtotal"),
+):
+    conn = get_conn()
+    try:
+        order = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if order["status"] == "cancelled":
+            raise HTTPException(status_code=409, detail="Cancelled orders have no invoice")
+        items = conn.execute(
+            """SELECT p.sku, oi.product_name, oi.quantity, oi.unit_price, oi.subtotal
+               FROM order_items oi JOIN products p ON p.id = oi.product_id
+               WHERE oi.order_id = ? ORDER BY oi.id""",
+            (order_id,),
+        ).fetchall()
+        # Each step is rounded to cents before the next one uses it.
+        subtotal = round(sum(i["subtotal"] for i in items), 2)
+        discount = round(subtotal * discount_percent / 100, 2)
+        taxable = round(subtotal - discount, 2)
+        tax = round(taxable * tax_rate / 100, 2)
+        return {
+            # ORD-2026-0001 -> INV-2026-0001
+            "invoice_number": "INV-" + order["order_number"].split("-", 1)[1],
+            "order_id": order["id"],
+            "order_number": order["order_number"],
+            "customer_name": order["customer_name"],
+            "lines": [
+                {"sku": i["sku"], "quantity": i["quantity"],
+                 "unit_price": i["unit_price"], "amount": round(i["subtotal"], 2)}
+                for i in items
+            ],
+            "subtotal": subtotal,
+            "discount_percent": discount_percent,
+            "discount": discount,
+            "taxable_amount": taxable,
+            "tax_rate": tax_rate,
+            "tax": tax,
+            "total": round(taxable + tax, 2),
+            "currency": order["currency"],
+        }
     finally:
         conn.close()
 
