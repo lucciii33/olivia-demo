@@ -64,7 +64,7 @@ curl localhost:8000/stats/overview -H "Authorization: Bearer demo-bearer-token-a
 | 11 | GET    | `/orders/{id}`                        | Ver orden con ítems (`?include_items=false` los omite) |
 | 12 | PATCH  | `/orders/{id}/status`                 | Cambiar estado (cancelar es definitivo; devuelve `previous_status`) |
 | 31 | PUT    | `/orders/{id}/items`                  | Reemplazar los ítems de una orden (ajusta stock y total, todo o nada) |
-| 32 | GET    | `/orders/{id}/invoice`                | Factura de una orden con descuento e impuesto (`?currency=EUR|GBP`) |
+| 32 | GET    | `/orders/{id}/invoice`                | Factura de una orden con descuento e impuesto (`?currency=EUR` o `GBP`) |
 | 35 | GET    | `/products/{id}/quote`                | Cotización con descuento por volumen (`?quantity=N`) |
 | 33 | GET    | `/products/{id}/availability`         | ¿Se pueden vender N unidades ahora? (`?quantity=N`) |
 | 14 | GET    | `/stats/overview`                     | Métricas: inventario, ventas, stock bajo |
