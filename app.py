@@ -421,6 +421,33 @@ def product_availability(product_id: int, quantity: int = Query(..., ge=1, le=10
         conn.close()
 
 
+# 35. Price quote with volume discount (nothing stored, stock not checked)
+@app.get("/products/{product_id}/quote", tags=["products"], dependencies=[Depends(require_auth)])
+def product_quote(product_id: int, quantity: int = Query(..., ge=1, le=1000)):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Product not found")
+        # Volume tiers: 10-49 units 5% off, 50 or more 10% off.
+        percent = 10 if quantity >= 50 else 5 if quantity >= 10 else 0
+        subtotal = round(row["sale_price"] * quantity, 2)
+        discount = round(subtotal * percent / 100, 2)
+        return {
+            "product_id": row["id"],
+            "sku": row["sku"],
+            "quantity": quantity,
+            "unit_price": row["sale_price"],
+            "subtotal": subtotal,
+            "volume_discount_percent": percent,
+            "discount": discount,
+            "total": round(subtotal - discount, 2),
+            "currency": row["currency"],
+        }
+    finally:
+        conn.close()
+
+
 # 17. Product order history
 @app.get("/products/{product_id}/orders", tags=["products"],
          dependencies=[Depends(require_auth)])
@@ -757,12 +784,18 @@ def replace_order_items(
         conn.close()
 
 
+# Fixed demo rates: 1 USD in each currency.
+_USD_RATES = {"USD": 1.0, "EUR": 0.92, "GBP": 0.79}
+
+
 # 32. Invoice for an order (tax and discount computed, nothing stored)
 @app.get("/orders/{order_id}/invoice", tags=["orders"], dependencies=[Depends(require_auth)])
 def order_invoice(
     order_id: int,
     tax_rate: float = Query(21, ge=0, le=30, description="Tax %, applied after the discount"),
     discount_percent: float = Query(0, ge=0, le=100, description="Discount % on the subtotal"),
+    currency: str = Query("USD", pattern="^(USD|EUR|GBP)$",
+                          description="Also show the total in this currency"),
 ):
     conn = get_conn()
     try:
@@ -801,6 +834,10 @@ def order_invoice(
             "tax": tax,
             "total": round(taxable + tax, 2),
             "currency": order["currency"],
+            # Amounts above stay in USD; only the total is converted, at a fixed rate.
+            "converted_currency": currency,
+            "exchange_rate": _USD_RATES[currency],
+            "converted_total": round(round(taxable + tax, 2) * _USD_RATES[currency], 2),
         }
     finally:
         conn.close()
