@@ -421,18 +421,31 @@ def product_availability(product_id: int, quantity: int = Query(..., ge=1, le=10
         conn.close()
 
 
-# 35. Price quote with volume discount (nothing stored, stock not checked)
+# 35. Price quote with volume discount and coupon (nothing stored, stock not checked)
+_COUPONS = {"SAIL5": 5, "SAIL10": 10}
+
+
 @app.get("/products/{product_id}/quote", tags=["products"], dependencies=[Depends(require_auth)])
-def product_quote(product_id: int, quantity: int = Query(..., ge=1, le=1000)):
+def product_quote(
+    product_id: int,
+    quantity: int = Query(..., ge=1, le=1000),
+    coupon: Optional[str] = Query(None, description="SAIL5 | SAIL10, any case"),
+):
+    if coupon is not None and coupon.strip().upper() not in _COUPONS:
+        raise HTTPException(status_code=400, detail=f"Unknown coupon '{coupon}'")
     conn = get_conn()
     try:
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Product not found")
-        # Volume tiers: 10-49 units 5% off, 50 or more 10% off.
-        percent = 10 if quantity >= 50 else 5 if quantity >= 10 else 0
+        # Volume tiers: 10-49 units 5% off, 50-99 units 10% off, 100 or more 15% off.
+        percent = 15 if quantity > 100 else 10 if quantity >= 50 else 5 if quantity >= 10 else 0
         subtotal = round(row["sale_price"] * quantity, 2)
         discount = round(subtotal * percent / 100, 2)
+        after_volume = round(subtotal - discount, 2)
+        # The coupon applies on top, to the amount left after the volume discount.
+        coupon_percent = _COUPONS[coupon.strip()] if coupon else 0
+        coupon_discount = round(after_volume * coupon_percent / 100, 2)
         return {
             "product_id": row["id"],
             "sku": row["sku"],
@@ -441,7 +454,10 @@ def product_quote(product_id: int, quantity: int = Query(..., ge=1, le=1000)):
             "subtotal": subtotal,
             "volume_discount_percent": percent,
             "discount": discount,
-            "total": round(subtotal - discount, 2),
+            "coupon": coupon.strip().upper() if coupon else None,
+            "coupon_discount_percent": coupon_percent,
+            "coupon_discount": coupon_discount,
+            "total": round(after_volume - coupon_discount, 2),
             "currency": row["currency"],
         }
     finally:
