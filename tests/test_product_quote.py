@@ -15,8 +15,8 @@ def test_requires_auth(client):
 def test_no_discount_below_ten(client, api_key_headers):
     assert _quote(client, api_key_headers, 9).json() == {
         "product_id": TAPE_ID, "sku": "ACC-TAPE-01", "quantity": 9, "unit_price": 14.0,
-        "subtotal": 126.0, "volume_discount_percent": 0, "discount": 0.0, "total": 126.0,
-        "currency": "USD",
+        "subtotal": 126.0, "volume_discount_percent": 0, "discount": 0.0, "coupon": None,
+        "coupon_discount_percent": 0, "coupon_discount": 0.0, "total": 126.0, "currency": "USD",
     }
 
 
@@ -51,3 +51,47 @@ def test_unknown_product(client, api_key_headers):
     res = _quote(client, api_key_headers, 1, product_id=9999)
     assert res.status_code == 404
     assert res.json()["detail"] == "Product not found"
+
+
+# --- 100+ tier and coupons ---
+
+def _q(client, headers, **params):
+    return client.get(f"/products/{TAPE_ID}/quote", headers=headers, params=params)
+
+
+def test_fifteen_percent_tier(client, api_key_headers):
+    body = _q(client, api_key_headers, quantity=101).json()
+    assert body["volume_discount_percent"] == 15
+    assert body["total"] == 1201.9
+
+
+def test_ninety_nine_is_still_ten_percent(client, api_key_headers):
+    assert _q(client, api_key_headers, quantity=99).json()["volume_discount_percent"] == 10
+
+
+def test_coupon_applies_after_volume_discount(client, api_key_headers):
+    body = _q(client, api_key_headers, quantity=10, coupon="SAIL5").json()
+    assert body["discount"] == 7.0
+    assert body["coupon"] == "SAIL5"
+    assert body["coupon_discount_percent"] == 5
+    assert body["coupon_discount"] == 6.65
+    assert body["total"] == 126.35
+
+
+def test_sail10(client, api_key_headers):
+    body = _q(client, api_key_headers, quantity=1, coupon="SAIL10").json()
+    assert body["coupon_discount"] == 1.4
+    assert body["total"] == 12.6
+
+
+def test_no_coupon(client, api_key_headers):
+    body = _q(client, api_key_headers, quantity=1).json()
+    assert body["coupon"] is None
+    assert body["coupon_discount"] == 0
+    assert body["total"] == 14.0
+
+
+def test_unknown_coupon_is_400(client, api_key_headers):
+    res = _q(client, api_key_headers, quantity=1, coupon="FREE")
+    assert res.status_code == 400
+    assert res.json()["detail"] == "Unknown coupon 'FREE'"
