@@ -802,9 +802,11 @@ def replace_order_items(
 
 # Fixed demo rates: 1 USD in each currency.
 _USD_RATES = {"USD": 1.0, "EUR": 0.92, "GBP": 0.79}
+# Flat shipping (USD, not taxed), free from this amount after the discount.
+_SHIPPING_FEE, _FREE_SHIPPING_FROM = 25.0, 1000.0
 
 
-# 32. Invoice for an order (tax and discount computed, nothing stored)
+# 32. Invoice for an order (discount, tax, shipping and instalments computed, nothing stored)
 @app.get("/orders/{order_id}/invoice", tags=["orders"], dependencies=[Depends(require_auth)])
 def order_invoice(
     order_id: int,
@@ -812,6 +814,7 @@ def order_invoice(
     discount_percent: float = Query(0, ge=0, le=100, description="Discount % on the subtotal"),
     currency: str = Query("USD", pattern="^(USD|EUR|GBP)$",
                           description="Also show the total in this currency"),
+    instalments: int = Query(1, ge=0, le=12, description="Pay the total in 1 to 12 equal parts"),
 ):
     conn = get_conn()
     try:
@@ -831,6 +834,8 @@ def order_invoice(
         discount = round(subtotal * discount_percent / 100, 2)
         taxable = round(subtotal - discount, 2)
         tax = round(taxable * tax_rate / 100, 2)
+        shipping = 0.0 if subtotal >= _FREE_SHIPPING_FROM else _SHIPPING_FEE
+        total = round(taxable + tax + shipping, 2)
         return {
             # ORD-2026-0001 -> INV-2026-0001
             "invoice_number": "INV-" + order["order_number"].split("-", 1)[1],
@@ -848,12 +853,15 @@ def order_invoice(
             "taxable_amount": taxable,
             "tax_rate": tax_rate,
             "tax": tax,
-            "total": round(taxable + tax, 2),
+            "shipping": shipping,
+            "total": total,
+            "instalments": instalments,
+            "instalment_amount": round(total / instalments, 2),
             "currency": order["currency"],
             # Amounts above stay in USD; only the total is converted, at a fixed rate.
             "converted_currency": currency,
             "exchange_rate": _USD_RATES[currency],
-            "converted_total": round(round(taxable + tax, 2) * _USD_RATES[currency], 2),
+            "converted_total": round(total * _USD_RATES[currency], 2),
         }
     finally:
         conn.close()
